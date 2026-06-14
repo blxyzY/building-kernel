@@ -82,7 +82,7 @@ jobs:
         echo "Downloading GCC..."
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
-    # 5. Jalankan Proses Kompilasi Kernel (Sudah ditambahkan CONFIG_DEBUG_SECTION_MISMATCH=y)
+    # 5. Jalankan Proses Kompilasi Kernel
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
@@ -108,37 +108,47 @@ jobs:
         # 1. Generate Defconfig
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         
-        # 2. Build Kernel (Ditambahkan saklar debug untuk membeberkan detail eror section mismatch)
+        # 2. Build Kernel
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
-    # 6. Mengemas Kernel 'Image' ke dalam Folder Struktur AnyKernel milikmu
+    # 6. Mengemas Kernel ke dalam Folder Kerja Bersih (DIPERBAIKI AGAR TIDAK DOBEL)
     - name: Package Kernel
       run: |
-        echo "Mempersiapkan kemasan zip..."
+        echo "Membersihkan dan mempersiapkan kemasan zip baru..."
+        
+        # Hapus folder stage lama jika ada, lalu buat folder baru yang benar-benar kosong
+        rm -rf $GITHUB_WORKSPACE/zip_stage
         mkdir -p $GITHUB_WORKSPACE/zip_stage
         
+        # Menyalin isi asli folder ScamsungKernel (META-INF, tools, anykernel.sh)
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+          # Pastikan file zip lama tidak ikut tersalin secara tidak sengaja
+          rm -f $GITHUB_WORKSPACE/zip_stage/*.zip
         else
           echo "ERROR: Folder ScamsungKernel tidak ditemukan!"
           exit 1
         fi
         
+        # Memasukkan file 'Image' hasil kompilasi baru ke root folder stage
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Berhasil menyalin berkas: Image"
+          echo "Berhasil memasukkan berkas: Image"
         else
           echo "ERROR: Berkas Image tidak ditemukan!"
           exit 1
         fi
         
+        # Memasukkan berkas dtbo.img jika diproduksi oleh kernel
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Berhasil menyalin berkas: dtbo.img"
+          echo "Berhasil memasukkan berkas: dtbo.img"
         fi
         
+        # Eksekusi kompresi langsung ke file zip di luar folder stage agar tidak memutar/dobel
         cd $GITHUB_WORKSPACE/zip_stage
-        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip *
+        zip -r9 ../ScamsungKernel.zip *
+        echo "Pembuatan zip tunggal selesai."
 
     # 7. Konfigurasi Rclone dan Unggah Langsung ke Google Drive Kamu
     - name: Upload to Google Drive
@@ -155,12 +165,17 @@ jobs:
         EOF
         
         echo "Memulai proses unggah berkas ke Google Drive..."
-        rclone copy $GITHUB_WORKSPACE/ScamsungKernel.zip gdrive:${{ secrets.GDRIVE_FOLDER_ID }} --progress
-        echo "Berhasil Terunggah!"
+        if [ -f "$GITHUB_WORKSPACE/ScamsungKernel.zip" ]; then
+          rclone copy $GITHUB_WORKSPACE/ScamsungKernel.zip gdrive:${{ secrets.GDRIVE_FOLDER_ID }} --progress
+          echo "Berhasil Terunggah ke Google Drive!"
+        else
+          echo "ERROR: File zip tidak ditemukan untuk diunggah!"
+          exit 1
+        fi
 
-    # 8. Tetap Sediakan Cadangan Di Halaman Artifact GitHub
+    # 8. Sediakan Cadangan Di Halaman Artifact GitHub
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ScamsungKernel
+        name: ScamsungKernel-Zip-Package
         path: ScamsungKernel.zip
