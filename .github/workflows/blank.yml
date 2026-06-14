@@ -1,36 +1,82 @@
-# This is a basic workflow to help you get started with Actions
+name: Build Scamsung Kernel
 
-name: CI
-
-# Controls when the workflow will run
 on:
-  # Triggers the workflow on push or pull request events but only for the "main" branch
   push:
-    branches: [ "main" ]
-  pull_request:
-    branches: [ "main" ]
+    branches: [ "main" ] # Ubah ke "master" jika branch utama kernelmu bernama master
+  workflow_dispatch: # Mengizinkan trigger manual dari tab Actions di GitHub
 
-  # Allows you to run this workflow manually from the Actions tab
-  workflow_dispatch:
-
-# A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  # This workflow contains a single job called "build"
-  build:
-    # The type of runner that the job will run on
+  build-kernel:
     runs-on: ubuntu-latest
 
-    # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-      - uses: actions/checkout@v4
+    # 1. Clone Repositori Kernel Kamu
+    - name: Checkout Kernel Source
+      uses: actions/checkout@v4
+      with:
+        submodules: 'recursive'
+        fetch-depth: 1
 
-      # Runs a single command using the runners shell
-      - name: Run a one-line script
-        run: echo Hello, world!
+    # 2. Install Dependencies Sistem Ubuntu
+    - name: Install Build Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache flex libelf-dev libssl-dev libncurses-dev kmod libgmp-dev libmpc-dev sysstat
+        sudo apt-get install -y lib32z1-dev liblz4-tool lzma liblzma-dev zstd
 
-      # Runs a set of commands using the runners shell
-      - name: Run a multi-line script
-        run: |
-          echo Add other actions to build,
-          echo test, and deploy your project.
+    # 3. Download Toolchains (GCC & Clang sesuai request)
+    - name: Download Toolchains
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/toolchains
+        cd $GITHUB_WORKSPACE/toolchains
+        
+        # Clone Clang-10 dari branch 'clang-10'
+        echo "Downloading Clang 10..."
+        git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+        
+        # Clone GCC dari branch 'gcc'
+        echo "Downloading GCC..."
+        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
+
+    # 4. Set Izin Eksekusi Skrip Build
+    - name: Set Script Permissions
+      run: chmod +x ./build_kernel.sh
+
+    # 5. Jalankan Proses Kompilasi Kernel
+    - name: Compile Kernel
+      run: |
+        # Mengatur PATH agar sistem mengenali folder 'bin' dari Clang dan GCC yang baru diunduh
+        # Catatan: Sesuaikan struktur folder internal toolchain jika folder 'bin' berada di sub-direktori lain
+        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+        
+        # Definisikan Arsitektur Target
+        export ARCH=arm64
+        export SUBARCH=arm64
+        
+        # Variabel Kompilasi (Gunakan nama cross-compiler yang sesuai di dalam toolchain-mu)
+        export CC=clang
+        export CLANG_TRIPLE=aarch64-linux-gnu-
+        export CROSS_COMPILE=aarch64-linux-android-
+        export CROSS_COMPILE_ARM32=arm-linux-androideabi-
+        
+        # Setup Cache untuk mempercepat build berikutnya
+        export USE_CCACHE=1
+        export CCACHE_DIR=~/.ccache
+        ccache -M 5G
+        
+        # Eksekusi skrip utama
+        ./build_kernel.sh
+
+    # 6. Unggah Hasil Kompilasi
+    - name: Upload Kernel Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ScamsungKernel-Build
+        path: |
+          out/arch/arm64/boot/Image
+          out/arch/arm64/boot/Image.gz
+          out/arch/arm64/boot/Image.gz-dtb
+          out/arch/arm64/boot/dtbo.img
+          anykernel/*.zip
+        # Catatan: Sesuaikan bagian 'path' di atas dengan lokasi output asli 
+        # yang dihasilkan oleh skrip ./build_kernel.sh milikmu.
