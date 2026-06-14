@@ -22,8 +22,8 @@ on:
         type: choice
         options:
           - 'clang-10'
-          - 'proton-clang'
-          - 'azure-clang'
+          - 'clang-11'
+          - 'clang-12'
       defconfig_name:
         description: 'Nama Defconfig (e.g. vendor/a23_eur_open_defconfig)'
         required: true
@@ -50,14 +50,12 @@ jobs:
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
         fi
 
-    # 3. Install Dependencies Sistem Ubuntu
+    # 3. Install Dependencies Sistem Ubuntu (Tanpa Rclone)
     - name: Install Build Dependencies
       run: |
         sudo apt update -y
-        sudo apt install aptitude zip ccache -y
+        sudo apt install zip ccache -y
         sudo apt install bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
-        sudo aptitude install libssl-dev -y
-        curl https://rclone.org/install.sh | sudo bash
 
     # 4. Download Toolchains (GCC & Clang Berdasarkan Pilihan)
     - name: Download Toolchains
@@ -99,7 +97,6 @@ jobs:
         ccache -M 5G
         
         mkdir -p $OUT_DIR
-        
         cd $GITHUB_WORKSPACE/kernel_src
         
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
@@ -108,11 +105,10 @@ jobs:
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
-    # 6. Mengemas Kernel ke dalam Folder Kerja Bersih (Anti-Dobel Zip)
+    # 6. Mengemas Kernel ke Folder Bersih (Anti-Dobel Zip)
     - name: Package Kernel
       run: |
-        echo "Membersihkan dan mempersiapkan kemasan zip baru..."
-        
+        echo "Menyiapkan struktur AnyKernel tanpa berkas duplikat..."
         rm -rf $GITHUB_WORKSPACE/zip_stage
         mkdir -p $GITHUB_WORKSPACE/zip_stage
         
@@ -139,28 +135,25 @@ jobs:
         
         cd $GITHUB_WORKSPACE/zip_stage
         zip -r9 ../ScamsungKernel.zip *
-        echo "Pembuatan zip tunggal selesai."
+        echo "Paket tunggal berhasil dibuat."
 
-    # 7. Konfigurasi Rclone (DIPERBAIKI PADA FORMAT INPUT EXPIRY)
-    - name: Upload to Google Drive
+    # 7. Unggah Otomatis ke Pixeldrain via API Instan
+    - name: Upload to Pixeldrain
       run: |
-        echo "Mengonfigurasi koneksi Google Drive..."
-        mkdir -p ~/.config/rclone
-        
-        cat <<EOF > ~/.config/rclone/rclone.conf
-        [gdrive]
-        type = drive
-        client_id = ${{ secrets.GDRIVE_CLIENT_ID }}
-        client_secret = ${{ secrets.GDRIVE_CLIENT_SECRET }}
-        token = {"access_token":"","token_type":"Bearer","refresh_token":"${{ secrets.GDRIVE_REFRESH_TOKEN }}","expiry":"2006-01-02T15:04:05Z"}
-        EOF
-        
-        echo "Memulai proses unggah berkas ke Google Drive..."
+        echo "Memulai proses unggah berkas ke Pixeldrain..."
         if [ -f "$GITHUB_WORKSPACE/ScamsungKernel.zip" ]; then
-          rclone copy $GITHUB_WORKSPACE/ScamsungKernel.zip gdrive:${{ secrets.GDRIVE_FOLDER_ID }} --progress
-          echo "Berhasil Terunggah ke Google Drive!"
+          # Mengirim file via cURL API Pixeldrain dan menyimpan responsnya
+          RESPONSE=$(curl -F "file=@$GITHUB_WORKSPACE/ScamsungKernel.zip" https://pixeldrain.com/api/file/)
+          echo "Respons Server: $RESPONSE"
+          
+          # Mengekstrak ID file untuk membuat link download publik
+          FILE_ID=$(echo $RESPONSE | jq -r '.id')
+          echo "============================================="
+          echo " LINK DOWNLOAD KERNEL KAMU:"
+          echo " https://pixeldrain.com/u/$FILE_ID"
+          echo "============================================="
         else
-          echo "ERROR: File zip tidak ditemukan untuk diunggah!"
+          echo "ERROR: File ScamsungKernel.zip tidak ditemukan!"
           exit 1
         fi
 
