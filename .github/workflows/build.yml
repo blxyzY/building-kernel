@@ -22,39 +22,47 @@ on:
         type: choice
         options:
           - 'clang-10'
-          - 'clang-11'
-          - 'clang-12'
+          - 'proton-clang'
+          - 'azure-clang'
+      defconfig_name:
+        description: 'Nama Defconfig (e.g. vendor/a23_eur_open_defconfig)'
+        required: true
+        default: 'vendor/a23_eur_open_defconfig'
+        type: string
 
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
 
     steps:
-    # 1. Mengkloning Repositori Kernel secara Manual
+    # 1. Mengkloning Repositori Utama Kamu (building-kernel)
+    - name: Checkout WorkSpace
+      uses: actions/checkout@v4
+
+    # 2. Mengkloning Repositori Source Kernel ke folder terpisah
     - name: Download Kernel Source
       run: |
         if [ -z "${{ github.event.inputs.kernel_branch }}" ]; then
           echo "Cloning default branch dari ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE
+          git clone --depth=1 --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
         else
           echo "Cloning branch ${{ github.event.inputs.kernel_branch }} dari ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE
+          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
         fi
 
-    # 2. Install Dependencies Sistem Ubuntu
+    # 3. Install Dependencies Sistem Ubuntu
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache flex libelf-dev libssl-dev libncurses-dev kmod libgmp-dev libmpc-dev sysstat
-        sudo apt-get install -y lib32z1-dev liblz4-tool lzma liblzma-dev zstd zip jq
+        sudo apt-get install -y lib32z1-dev liblz4-tool lzma liblzma-dev zstd zip
 
-    # 3. Download Toolchains (GCC & Clang Berdasarkan Pilihan)
+    # 4. Download Toolchains (GCC & Clang Berdasarkan Pilihan)
     - name: Download Toolchains
       run: |
         mkdir -p $GITHUB_WORKSPACE/toolchains
         cd $GITHUB_WORKSPACE/toolchains
         
-        # Deteksi pilihan Clang dari GitHub UI
         CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
         echo "Versi Clang yang dipilih: $CHOSEN_CLANG"
         
@@ -69,87 +77,76 @@ jobs:
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         fi
         
-        # Clone GCC dari branch 'gcc'
         echo "Downloading GCC..."
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
-    # 4. Jalankan Proses Kompilasi Kernel
+    # 5. Jalankan Proses Kompilasi Kernel
     - name: Compile Kernel
       run: |
-        # Mengatur PATH agar sistem mengenali folder 'bin' dari Clang dan GCC
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
         
-        # Definisikan Environment Variables untuk Build
         export ARCH=arm64
         export SUBARCH=arm64
         export OUT_DIR=$GITHUB_WORKSPACE/out
-        export KERNEL_DIR=$GITHUB_WORKSPACE
         
-        # Sesuaikan dengan variabel yang digunakan di perintah 'make'
         export GCC_64=aarch64-linux-android-
         export GCC_32=arm-linux-androideabi-
         
-        # Setup Cache untuk mempercepat build
         export USE_CCACHE=1
         export CCACHE_DIR=~/.cache/ccache
         ccache -M 5G
         
         mkdir -p $OUT_DIR
         
-        # Langkah Kompilasi
+        cd $GITHUB_WORKSPACE/kernel_src
+        
+        DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
+        echo "Menggunakan Defconfig: $DEFCONFIG"
+        
         # 1. Generate Defconfig
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- vendor/a23_eur_open_defconfig
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         
         # 2. Build Kernel
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y
-        
-        # 3. Copy Output ke Struktur Folder Kernel
-        mkdir -p $KERNEL_DIR/arch/arm64/boot
-        cp $OUT_DIR/arch/arm64/boot/Image $KERNEL_DIR/arch/arm64/boot/Image
-        
-        if [ -f $OUT_DIR/arch/arm64/boot/Image.gz ]; then
-          cp $OUT_DIR/arch/arm64/boot/Image.gz $KERNEL_DIR/arch/arm64/boot/Image.gz
-        else
-          cp $OUT_DIR/arch/arm64/boot/Image $KERNEL_DIR/arch/arm64/boot/Image.gz
-        fi
 
-    # 5. Kompresi Hasil Build dan Unggah ke Gofile
-    - name: Upload to Gofile
+    # 6. Mengemas Kernel 'Image' ke dalam Folder Struktur AnyKernel milikmu
+    - name: Package Kernel
       run: |
-        echo "Mempersiapkan berkas untuk diunggah..."
-        mkdir -p $GITHUB_WORKSPACE/gofile_upload
+        echo "Mempersiapkan kemasan zip..."
         
-        [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/Image ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/gofile_upload/
-        [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz $GITHUB_WORKSPACE/gofile_upload/
-        [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/gofile_upload/
-        [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/gofile_upload/
+        # Membuat folder penampung sementara
+        mkdir -p $GITHUB_WORKSPACE/zip_stage
         
-        cp $GITHUB_WORKSPACE/anykernel/*.zip $GITHUB_WORKSPACE/gofile_upload/ 2>/dev/null || true
+        # Menyalin file bawaan dari folder ScamsungKernel milikmu ke folder stage
+        if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
+          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+        else
+          echo "ERROR: Folder ScamsungKernel tidak ditemukan di repositori!"
+          exit 1
+        fi
         
-        cd $GITHUB_WORKSPACE/gofile_upload
-        zip -r $GITHUB_WORKSPACE/ScamsungKernel-Build.zip .
+        # Memasukkan file 'Image' (Hanya Image biasa, bukan .gz)
+        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
+          echo "Berhasil menyalin berkas: Image"
+        else
+          echo "ERROR: Berkas Image hasil build tidak ditemukan!"
+          exit 1
+        fi
         
-        echo "Mengunggah berkas ke Gofile..."
-        SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name' 2>/dev/null || echo "store1")
-        RESPONSE=$(curl -F "file=@$GITHUB_WORKSPACE/ScamsungKernel-Build.zip" "https://${SERVER}.gofile.io/contents/uploadfile")
-        DOWNLOAD_LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
+        # Menyalin dtbo.img jika diproduksi oleh kernel
+        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
+          echo "Berhasil menyalin berkas: dtbo.img"
+        fi
         
-        echo "======================================================="
-        echo "BERHASIL DIUNGGAH!"
-        echo "Silakan unduh kernel kamu di sini:"
-        echo "$DOWNLOAD_LINK"
-        echo "======================================================="
+        # Kompresi langsung dari dalam folder stage agar tidak ada folder ganda
+        cd $GITHUB_WORKSPACE/zip_stage
+        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip *
 
-    # 6. Tetap Unggah ke Artifact Bawaan GitHub
+    # 7. Mengunggah Hasil ke Halaman Artifact GitHub Actions
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ScamsungKernel-Custom-Build
-        path: |
-          out/arch/arm64/boot/Image
-          out/arch/arm64/boot/Image.gz
-          out/arch/arm64/boot/Image.gz-dtb
-          out/arch/arm64/boot/dtbo.img
-          arch/arm64/boot/Image
-          arch/arm64/boot/Image.gz
-          anykernel/*.zip
+        name: ScamsungKernel
+        path: ScamsungKernel.zip
