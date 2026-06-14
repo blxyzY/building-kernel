@@ -15,6 +15,15 @@ on:
         required: false
         default: 'oneui7'
         type: string
+      clang_version:
+        description: 'Pilih Versi Clang Compiler'
+        required: true
+        default: 'clang-10'
+        type: choice
+        options:
+          - 'clang-10'
+          - 'clang-11'
+          - 'clang-12'
 
 jobs:
   build-kernel:
@@ -32,22 +41,33 @@ jobs:
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE
         fi
 
-    # 2. Install Dependencies Sistem Ubuntu (Ditambahkan 'zip' untuk kompresi)
+    # 2. Install Dependencies Sistem Ubuntu
     - name: Install Build Dependencies
       run: |
         sudo apt-get update
         sudo apt-get install -y bc bison build-essential ccache flex libelf-dev libssl-dev libncurses-dev kmod libgmp-dev libmpc-dev sysstat
-        sudo apt-get install -y lib32z1-dev liblz4-tool lzma liblzma-dev zstd zip
+        sudo apt-get install -y lib32z1-dev liblz4-tool lzma liblzma-dev zstd zip jq
 
-    # 3. Download Toolchains (GCC & Clang)
+    # 3. Download Toolchains (GCC & Clang Berdasarkan Pilihan)
     - name: Download Toolchains
       run: |
         mkdir -p $GITHUB_WORKSPACE/toolchains
         cd $GITHUB_WORKSPACE/toolchains
         
-        # Clone Clang-10 dari branch 'clang-10'
-        echo "Downloading Clang 10..."
-        git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+        # Deteksi pilihan Clang dari GitHub UI
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
+        echo "Versi Clang yang dipilih: $CHOSEN_CLANG"
+        
+        if [ "$CHOSEN_CLANG" = "clang-10" ]; then
+          echo "Downloading Clang 10..."
+          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+        elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
+          echo "Downloading Proton Clang (Latest)..."
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+        elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
+          echo "Downloading Azure Clang..."
+          git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+        fi
         
         # Clone GCC dari branch 'gcc'
         echo "Downloading GCC..."
@@ -56,27 +76,32 @@ jobs:
     # 4. Jalankan Proses Kompilasi Kernel
     - name: Compile Kernel
       run: |
+        # Mengatur PATH agar sistem mengenali folder 'bin' dari Clang dan GCC
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
         
+        # Definisikan Environment Variables untuk Build
         export ARCH=arm64
         export SUBARCH=arm64
         export OUT_DIR=$GITHUB_WORKSPACE/out
         export KERNEL_DIR=$GITHUB_WORKSPACE
         
+        # Sesuaikan dengan variabel yang digunakan di perintah 'make'
         export GCC_64=aarch64-linux-android-
         export GCC_32=arm-linux-androideabi-
         
+        # Setup Cache untuk mempercepat build
         export USE_CCACHE=1
         export CCACHE_DIR=~/.cache/ccache
         ccache -M 5G
         
         mkdir -p $OUT_DIR
         
+        # Langkah Kompilasi
         # 1. Generate Defconfig
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- vendor/a23_eur_open_defconfig
         
         # 2. Build Kernel
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y
         
         # 3. Copy Output ke Struktur Folder Kernel
         mkdir -p $KERNEL_DIR/arch/arm64/boot
@@ -94,29 +119,19 @@ jobs:
         echo "Mempersiapkan berkas untuk diunggah..."
         mkdir -p $GITHUB_WORKSPACE/gofile_upload
         
-        # Menyalin file-file penting yang berhasil di-build ke satu tempat
         [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/Image ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/gofile_upload/
         [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz $GITHUB_WORKSPACE/gofile_upload/
         [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image.gz-dtb $GITHUB_WORKSPACE/gofile_upload/
         [ -f $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/gofile_upload/
         
-        # Jika ada file zip dari anykernel, masukkan juga
         cp $GITHUB_WORKSPACE/anykernel/*.zip $GITHUB_WORKSPACE/gofile_upload/ 2>/dev/null || true
         
-        # Lakukan kompresi menjadi satu file tunggal
         cd $GITHUB_WORKSPACE/gofile_upload
         zip -r $GITHUB_WORKSPACE/ScamsungKernel-Build.zip .
         
-        # Proses Upload menggunakan API Gofile
         echo "Mengunggah berkas ke Gofile..."
-        
-        # 1. Mendapatkan server Gofile yang tersedia saat ini
         SERVER=$(curl -s https://api.gofile.io/servers | jq -r '.data.servers[0].name' 2>/dev/null || echo "store1")
-        
-        # 2. Eksekusi unggah file zip
         RESPONSE=$(curl -F "file=@$GITHUB_WORKSPACE/ScamsungKernel-Build.zip" "https://${SERVER}.gofile.io/contents/uploadfile")
-        
-        # 3. Memunculkan link download di log GitHub Actions
         DOWNLOAD_LINK=$(echo $RESPONSE | jq -r '.data.downloadPage')
         
         echo "======================================================="
@@ -125,7 +140,7 @@ jobs:
         echo "$DOWNLOAD_LINK"
         echo "======================================================="
 
-    # 6. Tetap Unggah ke Artifact Bawaan GitHub (Sebagai cadangan)
+    # 6. Tetap Unggah ke Artifact Bawaan GitHub
     - name: Upload Kernel Artifact
       uses: actions/upload-artifact@v4
       with:
