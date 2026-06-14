@@ -8,12 +8,12 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: ''
+        default: 'https://github.com/mrx7014/DOOMeKERNEL.git'
         type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: ''
+        default: 'oneui7'
         type: string
       clang_version:
         description: 'Pilih Versi Clang Compiler'
@@ -53,9 +53,9 @@ jobs:
     # 3. Install Dependencies Sistem Ubuntu
     - name: Install Build Dependencies
       run: |
-        sudo apt update -y
-        sudo apt install bc cpio flex bison aptitude git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
-        sudo aptitude install libssl-dev -y
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache flex libelf-dev libssl-dev libncurses-dev kmod libgmp-dev libmpc-dev sysstat
+        sudo apt-get install -y lib32z1-dev liblz4-tool lzma liblzma-dev zstd zip
         # Install rclone untuk mengunggah ke Google Drive secara aman
         curl https://rclone.org/install.sh | sudo bash
 
