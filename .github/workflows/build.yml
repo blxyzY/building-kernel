@@ -8,12 +8,12 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: ''
+        default: 'https://github.com/mrx7014/DOOMeKERNEL.git'
         type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: ''
+        default: 'oneui7'
         type: string
       clang_version:
         description: 'Pilih Versi Clang Compiler'
@@ -50,12 +50,12 @@ jobs:
           git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
         fi
 
-    # 3. Install Dependencies Sistem Ubuntu (MENGGUNAKAN DAFTAR BARUMU + FIX APTITUDE & ZIP)
+    # 3. Install Dependencies Sistem Ubuntu (SUDAH DITAMBAHKAN CCACHE)
     - name: Install Build Dependencies
       run: |
         sudo apt update -y
-        # Install aptitude terlebih dahulu bersama dengan aplikasi zip penunjang kemasan akhir
-        sudo apt install aptitude zip -y
+        # Install aptitude, zip, dan ccache yang dibutuhkan oleh script kompilasi
+        sudo apt install aptitude zip ccache -y
         # Menjalankan daftar dependencies pilihanmu
         sudo apt install bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
         sudo aptitude install libssl-dev -y
