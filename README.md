@@ -1,29 +1,29 @@
 # Custom Android Kernel Builder 🚀
 
-Repositori ini digunakan untuk mengompilasi (build) kernel Android secara otomatis menggunakan **GitHub Actions**. Kamu tidak perlu memiliki PC berspesifikasi tinggi, cukup gunakan infrastruktur cloud dari GitHub.
+This repository allows you to compile (build) an Android kernel automatically using **GitHub Actions**. No high-spec PC required—just leverage GitHub's cloud infrastructure.
 
-## ✨ Fitur
-- Menggunakan Ubuntu terbaru sebagai lingkungan build.
-- Otomatis mengunduh Toolchain (Clang/GCC) yang ditentukan.
-- Mendukung kustomisasi `defconfig` dan nama kernel.
-- Hasil build (.zip atau Image) otomatis diunggah ke Github Artifacts / Release.
+## ✨ Features
+- Uses the latest Ubuntu environment for building.
+- Automatically downloads specified Toolchains (Clang/GCC).
+- Supports customization for `defconfig`, kernel names, and compiler flags.
+- Uploads the final build (.zip or Image) directly to GitHub Artifacts / Releases.
 
 ---
 
-## 🛠️ Langkah-Langkah Penggunaan
+## 🛠️ Step-by-Step Guide
 
-Ikuti panduan berikut untuk mulai membuat kernel kamu sendiri:
+Follow these steps to start building your custom kernel:
 
-### 1. Fork Repositori Ini
-* Jalankan proses **Fork** pada repositori ini ke akun GitHub kamu sendiri dengan menekan tombol `Fork` di pojok kanan atas halaman ini.
+### 1. Fork This Repository
+* Click the **Fork** button at the top right corner of this page to copy this repository to your own GitHub account.
 
-### 2. Atur Variabel / Konfigurasi Kernel
-* Masuk ke repositori hasil fork di akunmu.
-* Buka file konfigurasi workflow yang berada di folder `.github/workflows/build-kernel.yml`.
-* Edit bagian `env` (Environment Variables) sesuai dengan perangkat dan kernel yang ingin kamu build. Contoh:
-  ```yaml
+### 2. Configure Kernel Variables
+* Go to your forked repository.
+* Navigate to and open the workflow configuration file located at `.github/workflows/build-kernel.yml`.
+* Edit the `env` (Environment Variables) section to match your device and kernel source. Example:
+```yaml
   env:
-    KERNEL_REPO: "[https://github.com/username/android_kernel_device](https://github.com/username/android_kernel_device)"
-    KERNEL_BRANCH: "lineage-21"
+    KERNEL_REPO: "https://github.com/blxyzY/ScamsungKernel.git"
+    KERNEL_BRANCH: "main"
     KERNEL_DEFCONFIG: "vendor/device_defconfig"
-    CLANG_VERSION: "r481632.1"
+    CLANG_VERSION: "clang-10"
