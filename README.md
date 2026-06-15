@@ -1,18 +1,32 @@
-# Ubuntu-Termux Kernel Builder 🚀
+# 🚀 Scamsung Kernel Builder
 
-Sebuah panduan dan kumpulan skrip otomatisasi untuk melakukan kompilasi (build) kernel Linux atau Android langsung dari perangkat Android Anda menggunakan lingkungan **Ubuntu PRoot di Termux**.
+This repository provides an automated **GitHub Actions** workflow to compile 64-bit (`arm64`) Android Kernels quickly, efficiently, and cleanly.
 
-## 📌 Prasyarat Sistem
-Sebelum memulai, pastikan perangkat Anda memenuhi spesifikasi minimum berikut untuk menghindari kegagalan kompilasi:
-* **Penyimpanan Kosong:** Minimal 15 GB s.d 30 GB (tergantung besar source kernel).
-* **RAM:** Minimal 4 GB s.d 6GB+ (Disarankan mengaktifkan ZRAM/Swap).
-* **Aplikasi:** [Termux (F-Droid)](https://f-droid.org) terbaru.
+It features local automated patching to toggle **SELinux** modes, integration with popular Clang compilers, ccache management for build performance, and an **Anti-Double Zip** packaging system that directly uploads the compiled kernel straight to your **GitHub Releases** page.
 
 ---
 
-## 🛠️ Langkah 1: Menyiapkan Lingkungan Ubuntu
-Buka Termux Anda, lalu jalankan perintah berikut untuk masuk ke chroot/proot Ubuntu:
+## ✨ Key Features
 
+- **Fully Automated GitHub Actions**: Trigger builds manually using the `workflow_dispatch` feature directly from your repository's Actions tab.
+- **Flexible Compiler Options**: Supports multiple Clang toolchain configurations, including standard Clang 10, Proton Clang, and Azure Clang.
+- **Local SELinux Patching (No Broken Links)**: Automatically applies modifications using the `sed` command directly to the kernel's core SELinux driver files (`services.c` or `hooks.c`) to force *Permissive* mode, removing dependencies on unstable external repositories.
+- **Anti-Double Zip AnyKernel Structure**: An automated file cleanup step removes any accidental `.zip` remnants inside your source folder and compresses items straight from the staging root directory, ensuring a clean zip file structure without redundant nested folders.
+- **Auto-Upload to GitHub Releases**: The final `.zip` package is instantly pushed to a newly created repository release, tagged automatically with a clean, unique *timestamp*.
+
+---
+
+## 🛠️ Repository Structure
+
+To ensure the workflow builds and packages your kernel successfully without errors, make sure your repository follows this minimal structure:
+
+```text
+├── .github/
+│   └── workflows/
+│       └── build.yml          # Your GitHub Actions YAML workflow file
+└── ScamsungKernel/            # Required folder containing your AnyKernel3 script files
+    ├── AnyKernel3 files...
+    └── banner                 # Custom flashable installer text banner (optional)
 ```bash
 # Pastikan Termux tidak sleep selama proses build
 termux-wake-lock
