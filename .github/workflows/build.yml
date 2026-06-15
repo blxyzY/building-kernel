@@ -23,8 +23,6 @@ on:
         options:
           - 'clang-10'
           - 'clang-11'
-          - 'proton-clang'
-          - 'azure-clang'
       defconfig_name:
         description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
         required: true
