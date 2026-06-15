@@ -23,6 +23,8 @@ on:
         options:
           - 'clang-10'
           - 'clang-11'
+          - 'proton-clang'
+          - 'azure-clang'
       defconfig_name:
         description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
         required: true
@@ -78,6 +80,9 @@ jobs:
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
           git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
+          echo "Downloading Clang 11..."
+          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang (Latest)..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
@@ -108,6 +113,19 @@ jobs:
         mkdir -p $OUT_DIR
         cd $GITHUB_WORKSPACE/kernel_src
         
+        # =====================================================================
+        # --- FIX KODE MAKEFILE (HOTFIX ERROR ENDIF & MISSING SEPARATOR) ---
+        echo "=== Applying Hotfixes to Makefile ==="
+        
+        # 1. Fix extraneous 'endif' (Menonaktifkan endif yang kehilangan pasangan)
+        sed -i 's/endif\t# skip-makefile/# endif\t# skip-makefile/g' Makefile
+        
+        # 2. Fix missing separator pada baris 812 (Memaksa spasi awal menjadi Tab)
+        sed -i '812s/^[[:space:]]\+/	/' Makefile
+        
+        echo "=== Hotfixes Applied Successfully ==="
+        # =====================================================================
+        
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
@@ -132,64 +150,4 @@ jobs:
         fi
         
         # Start Make process
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
-
-    # 6. Package Kernel into a Clean Folder (Anti-Double Zip)
-    - name: Package Kernel
-      run: |
-        echo "Preparing AnyKernel structure without duplicate files..."
-        rm -rf $GITHUB_WORKSPACE/zip_stage
-        mkdir -p $GITHUB_WORKSPACE/zip_stage
-        
-        if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
-          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
-          # Delete any accidental zip file inside the source folder to prevent double zipping
-          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
-        else
-          echo "ERROR: ScamsungKernel folder not found!"
-          exit 1
-        fi
-        
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Successfully added file: Image"
-        else
-          echo "ERROR: Image file not found!"
-          exit 1
-        fi
-        
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Successfully added file: dtbo.img"
-        fi
-        
-        # Navigate directly inside the stage folder so the zip file doesn't wrap a redundant root directory
-        cd $GITHUB_WORKSPACE/zip_stage
-        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-        echo "Single package zip successfully created."
-
-    # 7. Get Local Time for Unique Release Tag Generation (Without V-Number)
-    - name: Set Release Tag
-      run: |
-        # Generates a unique timestamp tag (e.g., 20260615-1520-Permissive)
-        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.selinux_mode }}" >> $GITHUB_ENV
-
-    # 8. Automatically Upload Build File to GitHub Releases
-    - name: Upload to GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: ScamsungKernel.zip
-        tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel Build (${{ github.event.inputs.selinux_mode }})"
-        body: |
-          ### Kernel Build Details
-          - **Repository**: ${{ github.event.inputs.kernel_repo }}
-          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
-          - **Compiler**: ${{ github.event.inputs.clang_version }}
-          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
-          - **SELinux Mode**: `${{ github.event.inputs.selinux_mode }}`
-        draft: false
-        prerelease: false
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $
