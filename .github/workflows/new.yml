@@ -8,17 +8,17 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: 'https://github.com/mrx7014/DOOMeKERNEL.git'
+        default: ''
         type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: 'oneui7'
+        default: ''
         type: string
       clang_version:
         description: 'Select Clang Compiler Version'
         required: true
-        default: 'proton-clang'
+        default: 'clang-10'
         type: choice
         options:
           - 'clang-10'
