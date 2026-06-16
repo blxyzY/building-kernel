@@ -8,36 +8,29 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: ''
+        default: 'https://github.com/mrx7014/DOOMeKERNEL.git'
         type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: ''
+        default: 'oneui7'
         type: string
       clang_version:
         description: 'Select Clang Compiler Version'
         required: true
-        default: 'clang-10'
+        default: 'proton-clang'
         type: choice
         options:
           - 'clang-10'
           - 'clang-11'
           - 'proton-clang'
           - 'azure-clang'
+          - 'clang-12'
       defconfig_name:
         description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
         required: true
         default: 'vendor/a23_eur_open_defconfig'
         type: string
-      selinux_mode:
-        description: 'Select SELinux Mode'
-        required: true
-        default: 'Enforcing'
-        type: choice
-        options:
-          - 'Enforcing'
-          - 'Permissive'
 
 jobs:
   build-kernel:
@@ -62,13 +55,12 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt update -y
-        sudo apt install zip ccache -y
-        sudo apt install bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
+        sudo apt install zip ccache bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
 
     - name: Download Toolchains
       run: |
-        mkdir -p $GITHUB_WORKSPACE/toolchains
-        cd $GITHUB_WORKSPACE/toolchains
+        mkdir -p $GITHUB_WORKSPACE/toolchain
+        cd $GITHUB_WORKSPACE/toolchain
         
         CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
         echo "Selected Clang version: $CHOSEN_CLANG"
@@ -79,6 +71,9 @@ jobs:
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
           git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
+        elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
+          echo "Downloading Clang 12..."
+          git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
@@ -92,59 +87,35 @@ jobs:
 
     - name: Compile Kernel
       run: |
-        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+        cd $GITHUB_WORKSPACE/kernel_src
+        
+        # Penentuan Variabel Menggunakan Jalur Absolut GITHUB_WORKSPACE
+        KERNEL_DIR=$GITHUB_WORKSPACE/kernel_src
+        OUT_DIR=$KERNEL_DIR/out
+        GCC_64=$GITHUB_WORKSPACE/toolchain/gcc/bin/aarch64-linux-android-
+        GCC_32=$GITHUB_WORKSPACE/toolchain/gcc/bin/arm-linux-androideabi-
+        CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang/bin
+        
+        export DTC_EXT=$KERNEL_DIR/tools/dtc
+        export CONFIG_BUILD_ARM64_DT_OVERLAY=y
         
         export ARCH=arm64
         export SUBARCH=arm64
-        export OUT_DIR=$GITHUB_WORKSPACE/out
+        export PATH=$CLANG_PATH:$PATH
         
-        export GCC_64=aarch64-linux-android-
-        export GCC_32=arm-linux-androideabi-
-        
+        # Optimasi CCACHE
         export USE_CCACHE=1
         export CCACHE_DIR=~/.cache/ccache
         ccache -M 5G
         
         mkdir -p $OUT_DIR
-        cd $GITHUB_WORKSPACE/kernel_src
         
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
-        echo "Using Defconfig: $DEFCONFIG"
+        echo "Menggunakan Defconfig: $DEFCONFIG"
         
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        
-        if [ "${{ github.event.inputs.selinux_mode }}" = "Permissive" ]; then
-          echo "Configuring SELinux to Permissive..."
-          
-          if [ -f "security/selinux/hooks.c" ]; then
-            sed -i 's/int selinux_enforcing = 1;/int selinux_enforcing = 0;/g' security/selinux/hooks.c
-            sed -i 's/bool selinux_enforcing __read_mostly = true;/bool selinux_enforcing __read_mostly = false;/g' security/selinux/hooks.c
-            sed -i 's/bool selinux_enforcing = true;/bool selinux_enforcing = false;/g' security/selinux/hooks.c
-            echo "Source code patch for SELinux Permissive applied."
-          fi
-          
-          echo "CONFIG_SECURITY_SELINUX_DEVELOP=y" >> $OUT_DIR/.config
-          echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> $OUT_DIR/.config
-          echo "CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=0" >> $OUT_DIR/.config
-          
-        else
-          echo "Configuring SELinux to Enforcing (Strict)..."
-          
-          if [ -f "security/selinux/hooks.c" ]; then
-            sed -i 's/int selinux_enforcing = 0;/int selinux_enforcing = 1;/g' security/selinux/hooks.c
-            sed -i 's/bool selinux_enforcing __read_mostly = false;/bool selinux_enforcing __read_mostly = true;/g' security/selinux/hooks.c
-            sed -i 's/bool selinux_enforcing = false;/bool selinux_enforcing = true;/g' security/selinux/hooks.c
-          fi
-          
-          echo "CONFIG_SECURITY_SELINUX_DEVELOP=n" >> $OUT_DIR/.config
-          echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> $OUT_DIR/.config
-          echo "CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=1" >> $OUT_DIR/.config
-          echo "# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set" >> $OUT_DIR/.config
-        fi
-        
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
-        
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
+        # Mulai Proses Build Bersih
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
     - name: Package Kernel
       run: |
@@ -179,21 +150,20 @@ jobs:
 
     - name: Set Release Tag
       run: |
-        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')-${{ github.event.inputs.selinux_mode }}" >> $GITHUB_ENV
+        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: ScamsungKernel.zip
         tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel Build (${{ github.event.inputs.selinux_mode }})"
+        name: "Scamsung Kernel Build - ${{ env.RELEASE_TAG }}"
         body: |
           ### Kernel Build Details
           - **Repository**: ${{ github.event.inputs.kernel_repo }}
           - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
           - **Compiler**: ${{ github.event.inputs.clang_version }}
           - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
-          - **SELinux Mode**: `${{ github.event.inputs.selinux_mode }}`
         draft: false
         prerelease: false
       env:
