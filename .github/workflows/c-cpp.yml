@@ -103,6 +103,10 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
+        # ========================================================
+        # --- PERBAIKAN INTEGRASI KODE AWAL (Mencegah Overwrite) ---
+        # ========================================================
+        
         # 1. Mematikan Android KABI Extensions pada berkas defconfig target
         if [ -f "arch/arm64/configs/$DEFCONFIG" ]; then
           echo "Disabling Android KABI Extensions in defconfig..."
@@ -110,28 +114,11 @@ jobs:
           echo "CONFIG_ANDROID_KABI_EXTENSIONS=n" >> arch/arm64/configs/$DEFCONFIG
         fi
         
-        # 2. Memperbaiki referensi berkas Kconfig EROFS yang hilang di folder staging
-        if [ -f "drivers/staging/Kconfig" ]; then
-          echo "Fixing missing erofs Kconfig reference in staging..."
-          sed -i 's|source "drivers/staging/erofs/Kconfig"|# source "drivers/staging/erofs/Kconfig"|g' drivers/staging/Kconfig
-        fi
-        
-        # Membuat konfigurasi dasar awal
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        
-        # Sinkronisasi konfigurasi baru & usang
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
-        
-        # Menyiapkan berkas header arsitektur awal
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- prepare
-        
-        # --- PATCH KABI DIJALANKAN DI SINI (SETELAH PREPARE BERJALAN) ---
-        # Menimpa total berkas android_kabi.h langsung di source dan out folder agar tidak bisa tertimpa kembali oleh skrip internal
-        echo "Applying final KABI bypass to prevent static assert errors..."
-        for kabi_file in include/linux/android_kabi.h $OUT_DIR/include/linux/android_kabi.h; do
-          if [ -f "$kabi_file" ] || [ ! -d "${kabi_file%/*}" ]; then
-            mkdir -p "${kabi_file%/*}"
-            cat << 'EOF' > "$kabi_file"
+        # 2. Menghapus paksa dan menulis ulang berkas android_kabi.h di repositori dasar
+        if [ -f "include/linux/android_kabi.h" ]; then
+          echo "Rewriting basic android_kabi.h to bypass all static asserts safely..."
+          rm -f include/linux/android_kabi.h
+          cat << 'EOF' > include/linux/android_kabi.h
         #ifndef _LINUX_ANDROID_KABI_H
         #define _LINUX_ANDROID_KABI_H
         
@@ -145,9 +132,31 @@ jobs:
         #define __ANDROID_KABI_CHECK_SIZE_ALIGN(_orig, _new)
         #endif /* _LINUX_ANDROID_KABI_H */
         EOF
-          fi
-        done
-        # --------------------------------------------------------
+        fi
+        
+        # 3. Memperbaiki referensi berkas Kconfig EROFS yang hilang di folder staging
+        if [ -f "drivers/staging/Kconfig" ]; then
+          echo "Fixing missing erofs Kconfig reference in staging..."
+          sed -i 's|source "drivers/staging/erofs/Kconfig"|# source "drivers/staging/erofs/Kconfig"|g' drivers/staging/Kconfig
+        fi
+        
+        # ========================================================
+        
+        # Membuat konfigurasi dasar awal
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
+        
+        # Sinkronisasi konfigurasi baru & usang
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+        
+        # Menyiapkan berkas header arsitektur awal
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- prepare
+        
+        # --- PERBAIKAN PENGAMAN KEDUA (Menyasar folder OUT) ---
+        # Menimpa file kabi di folder output jika sistem 'make prepare' menduplikasinya kembali
+        if [ -d "$OUT_DIR/include/linux" ]; then
+          echo "Applying secondary KABI patch inside out directory..."
+          cp -f include/linux/android_kabi.h $OUT_DIR/include/linux/android_kabi.h
+        fi
         
         # Memulai kompilasi dengan jebakan error otomatis (Otomatis beralih ke -j1 jika build paralel gagal)
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y || \
