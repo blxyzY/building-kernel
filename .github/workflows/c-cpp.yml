@@ -67,20 +67,20 @@ jobs:
         
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
-          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-10 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
-          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-11 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
           echo "Downloading Azure Clang..."
-          git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+          git clone --depth=1 https://github.com clang
         fi
         
         echo "Downloading GCC Reference Toolchain..."
-        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
+        git clone --depth=1 -b gcc https://github.com gcc
 
     - name: Compile Kernel
       run: |
@@ -132,10 +132,14 @@ jobs:
         EOF
         fi
         
-        # 3. Memperbaiki referensi berkas Kconfig EROFS yang hilang di folder staging
+        # 3. Memperbaiki referensi berkas Kconfig & Makefile EROFS yang hilang di folder staging
         if [ -f "drivers/staging/Kconfig" ]; then
           echo "Fixing missing erofs Kconfig reference in staging..."
           sed -i 's|source "drivers/staging/erofs/Kconfig"|# source "drivers/staging/erofs/Kconfig"|g' drivers/staging/Kconfig
+        fi
+        if [ -f "drivers/staging/Makefile" ]; then
+          echo "Fixing missing erofs Makefile compilation reference in staging..."
+          sed -i 's|obj-$(CONFIG_EROFS_FS).*+= erofs/|# obj-$(CONFIG_EROFS_FS) += erofs/|g' drivers/staging/Makefile
         fi
         
         # -------------------------------------
@@ -144,8 +148,9 @@ jobs:
         
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
         
-        # Menyiapkan berkas header arsitektur awal (Mencegah eror asm/vectors.h)
+        # Menyiapkan berkas header arsitektur awal & modul tambahan (Mencegah eror asm/vectors.h)
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- prepare
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- modules_prepare
         
         # --- PERBAIKAN PENGAMAN KEDUA (Folder OUT) ---
         # Menyalin kembali berkas kabi yang bersih jika sempat terduplikasi kembali oleh langkah 'prepare'
