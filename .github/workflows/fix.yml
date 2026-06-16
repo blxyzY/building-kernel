@@ -104,56 +104,52 @@ jobs:
     # 6. Mengemas Kernel ke Folder Bersih (Anti-Dobel Zip)
     - name: Package Kernel
       run: |
-        echo "Menyiapkan struktur AnyKernel tanpa berkas duplikat..."
+        echo "Preparing AnyKernel structure without duplicate files..."
         rm -rf $GITHUB_WORKSPACE/zip_stage
         mkdir -p $GITHUB_WORKSPACE/zip_stage
         
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
-          rm -f $GITHUB_WORKSPACE/zip_stage/*.zip
+          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          echo "ERROR: Folder ScamsungKernel tidak ditemukan!"
+          echo "ERROR: ScamsungKernel folder not found!"
           exit 1
         fi
         
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Berhasil memasukkan berkas: Image"
+          echo "Successfully added file: Image"
         else
-          echo "ERROR: Berkas Image tidak ditemukan!"
+          echo "ERROR: Image file not found!"
           exit 1
         fi
         
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Berhasil memasukkan berkas: dtbo.img"
+          echo "Successfully added file: dtbo.img"
         fi
         
         cd $GITHUB_WORKSPACE/zip_stage
-        zip -r9 ../ScamsungKernel.zip *
-        echo "Paket tunggal berhasil dibuat."
-    # 7. Unggah Otomatis ke Pixeldrain via API Instan
-    - name: Upload to Pixeldrain
+        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
+        echo "Single package zip successfully created."
+
+    - name: Set Release Tag
       run: |
-        echo "Memulai proses unggah berkas ke Pixeldrain..."
-        if [ -f "$GITHUB_WORKSPACE/ScamsungKernel.zip" ]; then
-          # Mengirim file via cURL API Pixeldrain dan menyimpan responsnya
-          RESPONSE=$(curl -F "file=@$GITHUB_WORKSPACE/ScamsungKernel.zip" https://pixeldrain.com/api/file/)
-          echo "Respons Server: $RESPONSE"
-          
-          # Mengekstrak ID file untuk membuat link download publik
-          FILE_ID=$(echo $RESPONSE | jq -r '.id')
-          echo "============================================="
-          echo " LINK DOWNLOAD KERNEL KAMU:"
-          echo " https://pixeldrain.com/u/$FILE_ID"
-          echo "============================================="
-        else
-          echo "ERROR: File ScamsungKernel.zip tidak ditemukan!"
-          exit 1
-        fi
-    # 8. Sediakan Cadangan Di Halaman Artifact GitHub
-    - name: Upload Kernel Artifact
-      uses: actions/upload-artifact@v4
+        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
       with:
-        name: ScamsungKernel-Zip-Package
-        path: ScamsungKernel.zip
+        files: ScamsungKernel.zip
+        tag_name: "${{ env.RELEASE_TAG }}"
+        name: "Scamsung Kernel Build"
+        body: |
+          ### Kernel Build Details
+          - **Repository**: ${{ github.event.inputs.kernel_repo }}
+          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
+          - **Compiler**: ${{ github.event.inputs.clang_version }}
+          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
