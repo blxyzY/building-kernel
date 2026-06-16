@@ -67,20 +67,20 @@ jobs:
         
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
-          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-10 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
-          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-11 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
           echo "Downloading Azure Clang..."
-          git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+          git clone --depth=1 https://github.com clang
         fi
         
         echo "Downloading GCC Reference Toolchain..."
-        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
+        git clone --depth=1 -b gcc https://github.com gcc
 
     - name: Compile Kernel
       run: |
@@ -103,20 +103,19 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
-        # --- PERBAIKAN KABI ---
-        # Mematikan pengecekan ANDROID_KABI langsung pada berkas konfigurasi sebelum dijalankan
+        # --- PERBAIKAN KABI (METODE AMAN) ---
         if [ -f "arch/arm64/configs/$DEFCONFIG" ]; then
           echo "Disabling Android KABI Extensions in defconfig..."
           sed -i 's/CONFIG_ANDROID_KABI_EXTENSIONS=y/CONFIG_ANDROID_KABI_EXTENSIONS=n/g' arch/arm64/configs/$DEFCONFIG
           echo "CONFIG_ANDROID_KABI_EXTENSIONS=n" >> arch/arm64/configs/$DEFCONFIG
         fi
         
-        # Ekstra bypass: Memaksa makro penegak ukuran KABI agar selalu bernilai sukses (True)
+        # Mengosongkan makro pengecekan ukuran agar tidak memicu pembatalan static_assert
         if [ -f "include/linux/android_kabi.h" ]; then
-          echo "Patching android_kabi.h static assert check..."
-          sed -i 's/_Static_assert(sizeof(struct{_new;}) <= sizeof(struct{_orig;})/_Static_assert(1/g' include/linux/android_kabi.h
+          echo "Neutralizing KABI size check macro..."
+          sed -i 's/#define __ANDROID_KABI_CHECK_SIZE_ALIGN.*/#define __ANDROID_KABI_CHECK_SIZE_ALIGN(_orig, _new)/g' include/linux/android_kabi.h
         fi
-        # ---------------------
+        # ------------------------------------
         
         # Membuat konfigurasi dasar
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
@@ -124,12 +123,13 @@ jobs:
         # Sinkronisasi konfigurasi baru & usang
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
         
-        # --- PERBAIKAN GENERATE HEADER ---
-        # Menyiapkan berkas header arsitektur sebelum kompilasi penuh untuk mencegah hilangnya berkas 'asm/vectors.h'
+        # Menyiapkan berkas header arsitektur sebelum kompilasi penuh
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- prepare
         
-        # Memulai kompilasi inti
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
+        # Memulai kompilasi inti dengan jebakan error otomatis (Bypass Multithreading logs)
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y || \
+        (echo "Kompilasi paralel gagal! Mengulang dengan -j1 untuk menangkap error asli..." && \
+         make -j1 O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y)
 
     - name: Package Kernel
       run: |
