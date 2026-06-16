@@ -107,7 +107,6 @@ jobs:
         export GCC_64=aarch64-linux-android-
         export GCC_32=arm-linux-androideabi-
         
-        # Pindahkan rentetan argumen compiler ke export di sini
         export CC=clang
         export CLANG_TRIPLE=aarch64-linux-gnu-
         export CROSS_COMPILE=$GCC_64
@@ -123,10 +122,9 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
-        # Perintah make sekarang menjadi bersih dan simpel sesuai maumu
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
-
+        # Tambahkan LLVM_IAS=1 di akhir perintah make untuk mengatasi error '-EL'
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- LLVM_IAS=1 $DEFCONFIG
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- LLVM_IAS=1
     - name: Package Kernel
       run: |
         echo "Preparing AnyKernel structure without duplicate files..."
