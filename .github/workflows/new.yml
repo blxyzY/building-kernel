@@ -14,7 +14,7 @@ on:
       clang_version:
         description: 'Pilih Versi Clang Compiler'
         required: true
-        default: 'clang-10'
+        default: 'clang-11'
         type: choice
         options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
@@ -49,7 +49,7 @@ jobs:
 
         # Download Toolchains secara dinamis
         mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
-        CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-11' }}"
         
         if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
@@ -86,8 +86,8 @@ jobs:
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
         
-        # 5. Eksekusi Kompilasi Utama
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
+        # 5. Eksekusi Kompilasi Utama dengan flag V=1 untuk melacak error tersembunyi di qcacld-3.0
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y V=1
 
     - name: Package Kernel
       run: |
