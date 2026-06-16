@@ -87,57 +87,32 @@ jobs:
 
     - name: Compile Kernel
       run: |
-        cd $GITHUB_WORKSPACE/kernel_src
+        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
         
-        # Inisialisasi awal variabel dasar
-        KERNEL_DIR=$GITHUB_WORKSPACE/kernel_src
-        OUT_DIR=$KERNEL_DIR/out
-        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
-        
-        echo "Mengonfigurasi jalur compiler untuk: $CHOSEN_CLANG"
-        
-        # Penentuan jalur folder secara presisi berdasarkan versi Clang yang dipilih
-        if [[ "$CHOSEN_CLANG" == *"clang-"* ]]; then
-          # Jalur khusus untuk toolchain dari rsuplaygrnd (Clang 10, 11, 12)
-          CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang/host/linux-x86/$CHOSEN_CLANG/bin
-          GCC_64=$GITHUB_WORKSPACE/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-
-          GCC_32=$GITHUB_WORKSPACE/toolchain/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
-        else
-          # Jalur khusus untuk Proton Clang dan Azure Clang
-          CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang/bin
-          GCC_64=$GITHUB_WORKSPACE/toolchain/gcc/bin/aarch64-linux-android-
-          GCC_32=$GITHUB_WORKSPACE/toolchain/gcc/bin/arm-linux-androideabi-
-        fi
-        
-        # Tampilkan jalur untuk memastikan tidak ada variabel yang kosong
-        echo "Jalur CLANG_PATH: $CLANG_PATH"
-        echo "Jalur GCC_64: $GCC_64"
-        
-        # Pengecekan keamanan: Jika folder compiler tidak eksis, hentikan build dengan pesan jelas
-        if [ ! -d "$CLANG_PATH" ]; then
-          echo "FATAL ERROR: Folder biner Clang tidak ditemukan di $CLANG_PATH!"
-          echo "Periksa kembali proses pengunduhan toolchain di langkah sebelumnya."
-          exit 1
-        fi
-        
-        # Ekspor variabel lingkungan kompilasi
-        export DTC_EXT=$KERNEL_DIR/tools/dtc
-        export CONFIG_BUILD_ARM64_DT_OVERLAY=y
         export ARCH=arm64
         export SUBARCH=arm64
-        export PATH=$CLANG_PATH:$PATH
+        export OUT_DIR=$GITHUB_WORKSPACE/out
         
-        # Atur CCACHE
+        export GCC_64=aarch64-linux-android-
+        export GCC_32=arm-linux-androideabi-
+        
+        # Pindahkan rentetan argumen compiler ke export di sini
+        export CC=clang
+        export CLANG_TRIPLE=aarch64-linux-gnu-
+        export CROSS_COMPILE=$GCC_64
+        export CROSS_COMPILE_ARM32=$GCC_32
+        
         export USE_CCACHE=1
         export CCACHE_DIR=~/.cache/ccache
         ccache -M 2G
         
         mkdir -p $OUT_DIR
+        cd $GITHUB_WORKSPACE/kernel_src
         
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
-        echo "Menggunakan Defconfig: $DEFCONFIG"
+        echo "Using Defconfig: $DEFCONFIG"
         
-        # Mulai Kompilasi Kernel
+        # Perintah make sekarang menjadi bersih dan simpel
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
