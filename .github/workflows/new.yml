@@ -59,21 +59,25 @@ jobs:
 
     - name: Download Toolchains
       run: |
-        mkdir -p $GITHUB_WORKSPACE/toolchain
-        cd $GITHUB_WORKSPACE/toolchain
+        mkdir -p $GITHUB_WORKSPACE/toolchains
+        cd $GITHUB_WORKSPACE/toolchains
         
         CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
         echo "Selected Clang version: $CHOSEN_CLANG"
         
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
-          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang_temp
+          # Membuat symlink agar jalurnya pas dengan skrip kamu di bawah
+          ln -s clang_temp/host/linux-x86/clang-10 clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
-          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang_temp
+          ln -s clang_temp/host/linux-x86/clang-11 clang
         elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
           echo "Downloading Clang 12..."
-          git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang_temp
+          ln -s clang_temp/host/linux-x86/clang-12 clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
@@ -83,7 +87,14 @@ jobs:
         fi
         
         echo "Downloading GCC Reference Toolchain..."
-        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
+        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc_temp
+        
+        # Menyelaraskan jalur biner GCC untuk versi AOSP maupun Proton/Azure
+        if [[ "$CHOSEN_CLANG" == *"clang-"* ]]; then
+          ln -s gcc_temp/linux-x86/aarch64/aarch64-linux-android-4.9 gcc
+        else
+          ln -s gcc_temp gcc
+        fi
 
     - name: Compile Kernel
       run: |
@@ -112,7 +123,7 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
-        # Perintah make sekarang menjadi bersih dan simpel
+        # Perintah make sekarang menjadi bersih dan simpel sesuai maumu
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
