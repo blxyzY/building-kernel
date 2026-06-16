@@ -103,9 +103,7 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
-        # ========================================================
-        # --- PERBAIKAN INTEGRASI KODE AWAL (Mencegah Overwrite) ---
-        # ========================================================
+        # --- PERBAIKAN INTEGRASI KODE AWAL ---
         
         # 1. Mematikan Android KABI Extensions pada berkas defconfig target
         if [ -f "arch/arm64/configs/$DEFCONFIG" ]; then
@@ -140,19 +138,17 @@ jobs:
           sed -i 's|source "drivers/staging/erofs/Kconfig"|# source "drivers/staging/erofs/Kconfig"|g' drivers/staging/Kconfig
         fi
         
-        # ========================================================
+        # -------------------------------------
         
-        # Membuat konfigurasi dasar awal
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         
-        # Sinkronisasi konfigurasi baru & usang
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
         
         # Menyiapkan berkas header arsitektur awal
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- prepare
         
-        # --- PERBAIKAN PENGAMAN KEDUA (Menyasar folder OUT) ---
-        # Menimpa file kabi di folder output jika sistem 'make prepare' menduplikasinya kembali
+        # --- PERBAIKAN PENGAMAN KEDUA (Folder OUT) ---
+        # Menyalin kembali berkas kabi yang bersih jika sistem 'make prepare' sempat menduplikasinya kembali
         if [ -d "$OUT_DIR/include/linux" ]; then
           echo "Applying secondary KABI patch inside out directory..."
           cp -f include/linux/android_kabi.h $OUT_DIR/include/linux/android_kabi.h
@@ -173,8 +169,8 @@ jobs:
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
           find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          echo "WARNING: ScamsungKernel folder not found! Creating fallback folder."
-          mkdir -p $GITHUB_WORKSPACE/zip_stage
+          echo "ERROR: ScamsungKernel folder not found!"
+          exit 1
         fi
         
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
