@@ -68,15 +68,15 @@ jobs:
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
           git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang_temp
-          ln -s clang_temp/host/linux-x86/clang-10 clang
+          ln -s $GITHUB_WORKSPACE/toolchains/clang_temp/host/linux-x86/clang-10 clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
           git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang_temp
-          ln -s clang_temp/host/linux-x86/clang-11 clang
+          ln -s $GITHUB_WORKSPACE/toolchains/clang_temp/host/linux-x86/clang-11 clang
         elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
           echo "Downloading Clang 12..."
           git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang_temp
-          ln -s clang_temp/host/linux-x86/clang-12 clang
+          ln -s $GITHUB_WORKSPACE/toolchains/clang_temp/host/linux-x86/clang-12 clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
@@ -87,20 +87,6 @@ jobs:
          
         echo "Downloading GCC Reference Toolchain..."
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc_temp
-         
-        # KOREKSI DISINI: Memastikan folder bin dari GCC terhubung dengan benar ke $GITHUB_WORKSPACE/toolchains/gcc/bin
-        if [[ "$CHOSEN_CLANG" == *"clang-"* ]]; then
-          mkdir -p gcc
-          ln -s $GITHUB_WORKSPACE/toolchains/gcc_temp/linux-x86/aarch64/aarch64-linux-android-4.9/bin $GITHUB_WORKSPACE/toolchains/gcc/bin
-        else
-          # Jika menggunakan Proton / Azure Clang, mereka biasanya butuh GCC standar di folder bin
-          mkdir -p gcc
-          ln -s $GITHUB_WORKSPACE/toolchains/gcc_temp/bin $GITHUB_WORKSPACE/toolchains/gcc/bin
-        fi
-
-        # Verifikasi apakah binari GCC memang ada di lokasi tersebut (untuk mempermudah debugging di log)
-        echo "Isi dari folder gcc/bin:"
-        ls -l gcc/bin/ || echo "Folder gcc/bin kosong atau symlink rusak!"
         
     - name: Compile Kernel
       run: |
