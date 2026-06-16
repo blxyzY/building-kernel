@@ -89,30 +89,40 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/kernel_src
         
-        CLANG_BIN_DIR=$(dirname $(find $GITHUB_WORKSPACE/toolchain/clang -type f -name "clang" | head -n 1))
-        GCC64_BIN_DIR=$(dirname $(find $GITHUB_WORKSPACE/toolchain/gcc -type f -name "aarch64-linux-android-ld" | head -n 1))
-        GCC32_BIN_DIR=$(dirname $(find $GITHUB_WORKSPACE/toolchain/gcc -type f -name "arm-linux-androideabi-ld" | head -n 1))
-        
-        echo "Jalur Clang ditemukan: $CLANG_BIN_DIR"
-        echo "Jalur GCC64 ditemukan: $GCC64_BIN_DIR"
-        echo "Jalur GCC32 ditemukan: $GCC32_BIN_DIR"
-        
         KERNEL_DIR=$GITHUB_WORKSPACE/kernel_src
         OUT_DIR=$KERNEL_DIR/out
-        GCC_64=$GCC64_BIN_DIR/aarch64-linux-android-
-        GCC_32=$GCC32_BIN_DIR/arm-linux-androideabi-
-        CLANG_PATH=$CLANG_BIN_DIR
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
+        
+        echo "Mengonfigurasi jalur compiler untuk: $CHOSEN_CLANG"
+        
+        if [[ "$CHOSEN_CLANG" == *"clang-"* ]]; then
+          CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang/host/linux-x86/$CHOSEN_CLANG/bin
+          GCC_64=$GITHUB_WORKSPACE/toolchain/gcc/linux-x86/aarch64/aarch64-linux-android-4.9/bin/aarch64-linux-android-
+          GCC_32=$GITHUB_WORKSPACE/toolchain/gcc/linux-x86/arm/arm-linux-androideabi-4.9/bin/arm-linux-androideabi-
+        else
+          CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang/bin
+          GCC_64=$GITHUB_WORKSPACE/toolchain/gcc/bin/aarch64-linux-android-
+          GCC_32=$GITHUB_WORKSPACE/toolchain/gcc/bin/arm-linux-androideabi-
+        fi
+      
+        echo "Jalur CLANG_PATH: $CLANG_PATH"
+        echo "Jalur GCC_64: $GCC_64"
+        
+        if [ ! -d "$CLANG_PATH" ]; then
+          echo "FATAL ERROR: Folder biner Clang tidak ditemukan di $CLANG_PATH!"
+          echo "Periksa kembali proses pengunduhan toolchain di langkah sebelumnya."
+          exit 1
+        fi
         
         export DTC_EXT=$KERNEL_DIR/tools/dtc
         export CONFIG_BUILD_ARM64_DT_OVERLAY=y
-        
         export ARCH=arm64
         export SUBARCH=arm64
         export PATH=$CLANG_PATH:$PATH
         
         export USE_CCACHE=1
         export CCACHE_DIR=~/.cache/ccache
-        ccache -M 5G
+        ccache -M 2G
         
         mkdir -p $OUT_DIR
         
