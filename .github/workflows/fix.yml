@@ -34,12 +34,18 @@ jobs:
 
     - name: Environment Setup
       run: |
-        sudo apt update && sudo apt install rsync bc cpio flex bison aptitude aria2 git python-is-python3 tar perl wget curl lz4 ccache -y
-        sudo aptitude install libssl-dev -y
-        # Clone Kernel Source (Mendukung manual & push otomatis)
+        sudo apt update && sudo apt install -y zip ccache bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4
+        
+        # Ambil input atau gunakan default jika dipicu via push otomatis
         REPO="${{ github.event.inputs.kernel_repo || 'ISI_URL_REPO_DEFAULT_DISINI' }}"
         BRANCH="${{ github.event.inputs.kernel_branch }}"
-        git clone --depth=1 ${BRANCH:+"-b $BRANCH"} --recursive $REPO $GITHUB_WORKSPACE/kernel_src
+        
+        # Pengecekan branch yang aman dari bug spasi ganda
+        if [ -z "$BRANCH" ]; then
+          git clone --depth=1 --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
+        else
+          git clone --depth=1 -b "$BRANCH" --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
+        fi
 
         # Download Toolchains secara dinamis
         mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
@@ -50,7 +56,7 @@ jobs:
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         else
-          git clone --depth=1 -b $CHOSEN_CLANG https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com/rsuplaygrnd/toolchains.git clang
         fi
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
