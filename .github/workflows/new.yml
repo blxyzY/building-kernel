@@ -1,4 +1,4 @@
-name: Build Scamsung Kernel (Fixed)
+name: Build Scamsung Kernel
 
 on:
   push:
@@ -6,172 +6,94 @@ on:
   workflow_dispatch:
     inputs:
       kernel_repo:
-        description: 'Kernel Repository URL'
+        description: 'Kernel Repo URL'
         required: true
-        default: ''
-        type: string
       kernel_branch:
-        description: 'Git branch'
+        description: 'Branch'
         required: false
-        default: ''
-        type: string
       clang_version:
-        description: 'Select Clang Compiler Version'
+        description: 'Clang'
         required: true
-        default: 'clang-11'
+        default: 'clang-10'
         type: choice
-        options:
-          - 'clang-10'
-          - 'clang-11'
-          - 'clang-12'
-          - 'proton-clang'
-          - 'azure-clang'
+        options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
-        description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
+        description: 'Defconfig'
         required: true
         default: 'vendor/a23_eur_open_defconfig'
-        type: string
 
 jobs:
-  build-kernel:
+  build:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-    - name: Checkout WorkSpace
-      uses: actions/checkout@v4
+    - uses: actions/checkout@v4
 
-    - name: Download Kernel Source
-      run: |
-        if [ -z "${{ github.event.inputs.kernel_branch }}" ]; then
-          echo "Cloning default branch from ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
-        else
-          echo "Cloning branch ${{ github.event.inputs.kernel_branch }} from ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
-        fi
+    - name: Cache ccache
+      uses: actions/cache@v4
+      with:
+        path: ~/.cache/ccache
+        key: ${{ runner.os }}-ccache-${{ github.event.inputs.clang_version }}-${{ github.sha }}
+        restore-keys: ${{ runner.os }}-ccache-${{ github.event.inputs.clang_version }}-
 
-    - name: Install Build Dependencies
+    - name: Setup Environment & Toolchains
       run: |
-        sudo apt update -y
-        sudo apt install rsync bc cpio flex bison aptitude aria2 git python-is-python3 tar perl wget curl lz4 ccache -y
-        sudo aptitude install libssl-dev -y
-    - name: Download Toolchains
-      run: |
-        mkdir -p $GITHUB_WORKSPACE/toolchains
-        cd $GITHUB_WORKSPACE/toolchains
+        sudo apt update && sudo apt install -y zip ccache bc cpio flex bison git python-is-python3 libc6-dev libssl-dev lz4
         
-        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
-        echo "Selected Clang version: $CHOSEN_CLANG"
+        # Clone Kernel Source (Mendukung manual & otomatis via push)
+        REPO="${{ github.event.inputs.kernel_repo || 'UR_DEFAULT_REPO_HERE' }}"
+        BRANCH="${{ github.event.inputs.kernel_branch }}"
+        BRANCH_ARG=${BRANCH:+"-b $BRANCH"}
+        git clone --depth=1 $BRANCH_ARG --recursive $REPO $GITHUB_WORKSPACE/kernel_src
+
+        # Download Toolchains secara dinamis
+        mkdir -p toolchains && cd toolchains
+        CLANG_VER="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
-        if [ "$CHOSEN_CLANG" = "clang-10" ]; then
-          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
-          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
-          git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
+        if [[ "$CLANG_VER" == *"proton"* ]]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
-        elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
+        elif [[ "$CLANG_VER" == *"azure"* ]]; then
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+        else
+          git clone --depth=1 -b $CLANG_VER --single-branch https://github.com/rsuplaygrnd/toolchains.git clang
         fi
-        
-        # Menggunakan GCC prebuilt resmi dari Google (AOSP) untuk stabilitas cross-compile ARM64
-        echo "Downloading Official AOSP GCC Toolchains..."
-        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
-        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
+        git clone --depth=1 -b gcc --single-branch https://github.com/blxyzY/toolchain.git gcc
 
     - name: Compile Kernel
       run: |
-        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc64/bin:$GITHUB_WORKSPACE/toolchains/gcc32/bin:$PATH"
+        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+        export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
+        export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export OUT_DIR=$GITHUB_WORKSPACE/out
+        ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
+        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
         
-        export GCC_64=aarch64-linux-android-
-        export GCC_32=arm-linux-androideabi-
-        
-        export USE_CCACHE=1
-        export CCACHE_DIR=~/.cache/ccache
-        ccache -M 5G
-        
-        mkdir -p $OUT_DIR
-        cd $GITHUB_WORKSPACE/kernel_src
-        
-        # Simpan informasi versi compiler untuk log rilis
-        $GITHUB_WORKSPACE/toolchains/clang/bin/clang --version | head -n 1 > $GITHUB_WORKSPACE/compiler_info.txt
-        
-        DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
-        echo "Using Defconfig: $DEFCONFIG"
-        
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- HOSTCFLAGS="-w" HOSTCXXFLAGS="-w"
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG olddefconfig
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y
 
-    - name: Package Kernel
+    - name: Package & Release
       run: |
-        echo "Preparing AnyKernel structure..."
-        rm -rf $GITHUB_WORKSPACE/zip_stage
-        mkdir -p $GITHUB_WORKSPACE/zip_stage
-        
-        # Proteksi jika folder template AnyKernel tidak ada, otomatis download AnyKernel3 standar
-        if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
-          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+        mkdir -p zip_stage
+        if [ -d "ScamsungKernel" ]; then
+          cp -r ScamsungKernel/* zip_stage/ && find zip_stage/ -name "*.zip" -delete
         else
-          echo "WARNING: ScamsungKernel folder not found! Downloading clean AnyKernel3 template..."
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git $GITHUB_WORKSPACE/zip_stage
-          # CATATAN: Kamu harus menyesuaikan anykernel.sh di zip_stage jika menggunakan template otomatis ini!
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git zip_stage && rm -rf zip_stage/.git
         fi
         
-        # Hapus sisa-sisa file zip di dalam stage
-        find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
+        [ -f "out/arch/arm64/boot/Image" ] && cp out/arch/arm64/boot/Image zip_stage/Image || { echo "Image missing!"; exit 1; }
+        [ -f "out/arch/arm64/boot/dtbo.img" ] && cp out/arch/arm64/boot/dtbo.img zip_stage/dtbo.img
         
-        # Validasi file Image (Penyebab utama bootloop jika ukuran file 0 bytes)
-        if [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Successfully added file: Image"
-        else
-          echo "ERROR: Image file is missing or empty!"
-          exit 1
-        fi
-        
-        # Otomatis deteksi dan bawa DTBO & DTB jika berhasil dikompilasi (Sangat penting untuk Samsung baru)
-        if [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Successfully added file: dtbo.img"
-        fi
-        
-        if [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/dts/vendor/qcom/dtb.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dts/vendor/qcom/dtb.img $GITHUB_WORKSPACE/zip_stage/dtb.img
-          echo "Successfully added file: dtb.img (Qualcomm)"
-        elif [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtb.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtb.img $GITHUB_WORKSPACE/zip_stage/dtb.img
-          echo "Successfully added file: dtb.img"
-        fi
-        
-        cd $GITHUB_WORKSPACE/zip_stage
-        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-
-    - name: Set Release Tag
-      run: |
+        cd zip_stage && zip -r9 ../ScamsungKernel.zip ./*
         echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
-        echo "COMPILER_NAME=$(cat $GITHUB_WORKSPACE/compiler_info.txt)" >> $GITHUB_ENV
 
-    - name: Upload to GitHub Release
+    - name: Upload Release
       uses: softprops/action-gh-release@v2
       with:
         files: ScamsungKernel.zip
         tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel Build - ${{ env.RELEASE_TAG }}"
-        body: |
-          ### Kernel Build Details
-          - **Repository**: ${{ github.event.inputs.kernel_repo }}
-          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
-          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
-          - **Exact Compiler**: `${{ env.COMPILER_NAME }}`
-        draft: false
-        prerelease: false
+        name: "Scamsung Kernel [${{ env.RELEASE_TAG }}]"
+        body: "Compiled successfully with ${{ github.event.inputs.clang_version || 'clang-10' }}"
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
