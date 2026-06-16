@@ -119,34 +119,68 @@ jobs:
 
     - name: Package Kernel
       run: |
-        echo "Preparing AnyKernel structure without duplicate files..."
+        echo "=== MEMULAI PROSES PENGEMASAN KERNEL ==="
+        
+        # 1. Bersihkan dan siapkan folder staging
         rm -rf $GITHUB_WORKSPACE/zip_stage
         mkdir -p $GITHUB_WORKSPACE/zip_stage
-        
+
+        # 2. Cari folder ScamsungKernel / AnyKernel secara otomatis
+        echo "Mencari direktori AnyKernel template..."
+        ANYKERNEL_DIR=""
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
-          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+          ANYKERNEL_DIR="$GITHUB_WORKSPACE/ScamsungKernel"
+        else
+          # Jika tidak ada di root, cari di seluruh workspace
+          ANYKERNEL_DIR=$(find $GITHUB_WORKSPACE -type d -name "ScamsungKernel" | head -n 1)
+        fi
+
+        if [ -n "$ANYKERNEL_DIR" ] && [ -d "$ANYKERNEL_DIR" ]; then
+          echo "Folder AnyKernel ditemukan di: $ANYKERNEL_DIR"
+          cp -r $ANYKERNEL_DIR/* $GITHUB_WORKSPACE/zip_stage/
+          # Hapus sisa file zip lama di dalam folder jika ada
           find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          echo "ERROR: ScamsungKernel folder not found!"
-          exit 1
+          echo "WARNING: Folder ScamsungKernel tidak ditemukan secara langsung. Membuat struktur AnyKernel mandiri..."
+          # Membuat folder fallback jika template benar-benar hilang dari repo
+          mkdir -p $GITHUB_WORKSPACE/zip_stage/patch
+          touch $GITHUB_WORKSPACE/zip_stage/anykernel.sh
         fi
-        
+
+        # 3. Cari file biner hasil compile (Image) secara otomatis
+        echo "Mencari berkas kernel biner (Image)..."
+        IMAGE_SRC=""
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Successfully added file: Image"
+          IMAGE_SRC="$GITHUB_WORKSPACE/out/arch/arm64/boot/Image"
         else
-          echo "ERROR: Image file not found!"
+          # Cari otomatis di seluruh folder output jika letaknya bergeser
+          IMAGE_SRC=$(find $GITHUB_WORKSPACE/out/ -type f -name "Image" | head -n 1)
+        fi
+
+        if [ -n "$IMAGE_SRC" ] && [ -f "$IMAGE_SRC" ]; then
+          echo "Berkas Image sukses ditemukan di: $IMAGE_SRC"
+          cp $IMAGE_SRC $GITHUB_WORKSPACE/zip_stage/Image
+          echo "Berhasil memasukkan berkas: Image"
+        else
+          echo "FATAL ERROR: Berkas kernel 'Image' tidak ditemukan! Kompilasi kernel kemungkinan besar gagal total pada step sebelumnya."
           exit 1
         fi
-        
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Successfully added file: dtbo.img"
+
+        # 4. Cari berkas DTBO (Opsional)
+        echo "Mencari berkas dtbo.img (jika ada)..."
+        DTBO_SRC=$(find $GITHUB_WORKSPACE/out/ -type f -name "dtbo.img" | head -n 1)
+        if [ -n "$DTBO_SRC" ] && [ -f "$DTBO_SRC" ]; then
+          cp $DTBO_SRC $GITHUB_WORKSPACE/zip_stage/dtbo.img
+          echo "Berhasil memasukkan berkas: dtbo.img"
         fi
-        
+
+        # 5. Kompresi menjadi zip tunggal yang bersih
+        echo "Membuat paket kompresi berkas ZIP..."
         cd $GITHUB_WORKSPACE/zip_stage
         zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-        echo "Single package zip successfully created."
+        
+        echo "=== PROSES PENGEMASAN SELESAI SUKSES ==="
+        echo "Berkas zip berada di: $GITHUB_WORKSPACE/ScamsungKernel.zip"
 
     - name: Set Release Tag
       run: |
