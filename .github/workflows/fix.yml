@@ -8,133 +8,84 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: ''
-        type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: ''
-        type: string
       clang_version:
         description: 'Pilih Versi Clang Compiler'
         required: true
         default: 'clang-10'
         type: choice
-        options:
-          - 'clang-10'
-          - 'clang-11'
-          - 'clang-12'
+        options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
-        description: 'Nama Defconfig (e.g. vendor/a23_eur_open_defconfig)'
+        description: 'Nama Defconfig'
         required: true
         default: 'vendor/a23_eur_open_defconfig'
-        type: string
 
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
 
     steps:
-    # 1. Mengkloning Repositori Utama Kamu (building-kernel)
     - name: Checkout WorkSpace
       uses: actions/checkout@v4
 
-    # 2. Mengkloning Repositori Source Kernel ke folder terpisah
-    - name: Download Kernel Source
+    - name: Environment Setup
       run: |
-        if [ -z "${{ github.event.inputs.kernel_branch }}" ]; then
-          echo "Cloning default branch dari ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
-        else
-          echo "Cloning branch ${{ github.event.inputs.kernel_branch }} dari ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
-        fi
-    # 3. Install Dependencies Sistem Ubuntu (Tanpa Rclone)
-    - name: Install Build Dependencies
-      run: |
-        sudo apt update -y
-        sudo apt install zip ccache -y
-        sudo apt install bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
-    # 4. Download Toolchains (GCC & Clang Berdasarkan Pilihan)
-    - name: Download Toolchains
-      run: |
-        mkdir -p $GITHUB_WORKSPACE/toolchains
-        cd $GITHUB_WORKSPACE/toolchains
+        sudo apt update && sudo apt install rsync bc cpio flex bison aptitude aria2 git python-is-python3 tar perl wget curl lz4 ccache -y
+        sudo aptitude install libssl-dev -y
+        # Clone Kernel Source (Mendukung manual & push otomatis)
+        REPO="${{ github.event.inputs.kernel_repo || 'ISI_URL_REPO_DEFAULT_DISINI' }}"
+        BRANCH="${{ github.event.inputs.kernel_branch }}"
+        git clone --depth=1 ${BRANCH:+"-b $BRANCH"} --recursive $REPO $GITHUB_WORKSPACE/kernel_src
+
+        # Download Toolchains secara dinamis
+        mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
-        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
-        echo "Versi Clang yang dipilih: $CHOSEN_CLANG"
-        
-        if [ "$CHOSEN_CLANG" = "clang-10" ]; then
-          echo "Downloading Clang 10..."
-          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
-          echo "Downloading Proton Clang (Latest)..."
+        if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
-          echo "Downloading Azure Clang..."
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+        else
+          git clone --depth=1 -b $CHOSEN_CLANG https://github.com/rsuplaygrnd/toolchains.git clang
         fi
-        
-        echo "Downloading GCC..."
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
-    # 5. Jalankan Proses Kompilasi Kernel
+
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+        export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
+        export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export OUT_DIR=$GITHUB_WORKSPACE/out
-        
-        export GCC_64=aarch64-linux-android-
-        export GCC_32=arm-linux-androideabi-
-        
-        export USE_CCACHE=1
-        export CCACHE_DIR=~/.cache/ccache
-        ccache -M 5G
-        
-        mkdir -p $OUT_DIR
-        cd $GITHUB_WORKSPACE/kernel_src
-        
-        DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
-        echo "Menggunakan Defconfig: $DEFCONFIG"
+        ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
+        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
         
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
-    # 6. Mengemas Kernel ke Folder Bersih (Anti-Dobel Zip)
+
     - name: Package Kernel
       run: |
-        echo "Preparing AnyKernel structure without duplicate files..."
-        rm -rf $GITHUB_WORKSPACE/zip_stage
-        mkdir -p $GITHUB_WORKSPACE/zip_stage
+        rm -rf $GITHUB_WORKSPACE/zip_stage && mkdir -p $GITHUB_WORKSPACE/zip_stage
         
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
           find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          echo "ERROR: ScamsungKernel folder not found!"
-          exit 1
+          echo "ERROR: ScamsungKernel folder not found!" && exit 1
         fi
         
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Successfully added file: Image"
         else
-          echo "ERROR: Image file not found!"
-          exit 1
+          echo "ERROR: Image file not found!" && exit 1
         fi
         
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Successfully added file: dtbo.img"
-        fi
+        [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
         
-        cd $GITHUB_WORKSPACE/zip_stage
-        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-        echo "Single package zip successfully created."
-
-    - name: Set Release Tag
-      run: |
+        cd $GITHUB_WORKSPACE/zip_stage && zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
         echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
     - name: Upload to GitHub Release
@@ -149,7 +100,5 @@ jobs:
           - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
           - **Compiler**: ${{ github.event.inputs.clang_version }}
           - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
-        draft: false
-        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
