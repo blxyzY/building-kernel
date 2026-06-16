@@ -1,4 +1,4 @@
-name: Build Scamsung Kernel
+name: Build Scamsung Kernel (Fixed)
 
 on:
   push:
@@ -8,22 +8,24 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: 'https://github.com/mrx7014/DOOMeKERNEL.git'
+        default: ''
+        type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: 'oneui7'
+        default: ''
+        type: string
       clang_version:
         description: 'Select Clang Compiler Version'
         required: true
-        default: 'proton-clang'
+        default: 'clang-11'
         type: choice
         options:
           - 'clang-10'
           - 'clang-11'
+          - 'clang-12'
           - 'proton-clang'
           - 'azure-clang'
-          - 'clang-12'
       defconfig_name:
         description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
         required: true
@@ -53,8 +55,7 @@ jobs:
     - name: Install Build Dependencies
       run: |
         sudo apt update -y
-        sudo apt install rsync bc cpio flex bison aptitude aria2 git python-is-python3 tar perl wget curl lz4 ccache -y
-        sudo aptitude install libssl-dev -y
+        sudo apt install -y zip ccache bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 libssl-dev libelf-dev
 
     - name: Download Toolchains
       run: |
@@ -65,28 +66,25 @@ jobs:
         echo "Selected Clang version: $CHOSEN_CLANG"
         
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
-          echo "Downloading Clang 10..."
           git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
-          echo "Downloading Clang 11..."
           git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
-          echo "Downloading Clang 12..."
           git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
-          echo "Downloading Proton Clang..."
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
-          echo "Downloading Azure Clang..."
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         fi
         
-        echo "Downloading GCC Reference Toolchain..."
-        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
+        # Menggunakan GCC prebuilt resmi dari Google (AOSP) untuk stabilitas cross-compile ARM64
+        echo "Downloading Official AOSP GCC Toolchains..."
+        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/aarch64/aarch64-linux-android-4.9 gcc64
+        git clone --depth=1 https://android.googlesource.com/platform/prebuilts/gcc/linux-x86/arm/arm-linux-androideabi-4.9 gcc32
 
     - name: Compile Kernel
       run: |
-        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+        export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc64/bin:$GITHUB_WORKSPACE/toolchains/gcc32/bin:$PATH"
         
         export ARCH=arm64
         export SUBARCH=arm64
@@ -102,49 +100,64 @@ jobs:
         mkdir -p $OUT_DIR
         cd $GITHUB_WORKSPACE/kernel_src
         
+        # Simpan informasi versi compiler untuk log rilis
+        $GITHUB_WORKSPACE/toolchains/clang/bin/clang --version | head -n 1 > $GITHUB_WORKSPACE/compiler_info.txt
+        
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Using Defconfig: $DEFCONFIG"
         
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- LLVM_IAS=1 $DEFCONFIG
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- LLVM_IAS=1 olddefconfig
-        
-        # Diperbarui: Menghapus flag penanganan section mismatch agar build berjalan murni & ketat
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- LLVM_IAS=1
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
     - name: Package Kernel
       run: |
-        echo "Preparing AnyKernel structure without duplicate files..."
+        echo "Preparing AnyKernel structure..."
         rm -rf $GITHUB_WORKSPACE/zip_stage
         mkdir -p $GITHUB_WORKSPACE/zip_stage
         
+        # Proteksi jika folder template AnyKernel tidak ada, otomatis download AnyKernel3 standar
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
-          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          echo "ERROR: ScamsungKernel folder not found!"
-          exit 1
+          echo "WARNING: ScamsungKernel folder not found! Downloading clean AnyKernel3 template..."
+          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git $GITHUB_WORKSPACE/zip_stage
+          # CATATAN: Kamu harus menyesuaikan anykernel.sh di zip_stage jika menggunakan template otomatis ini!
         fi
         
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arch64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
+        # Hapus sisa-sisa file zip di dalam stage
+        find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
+        
+        # Validasi file Image (Penyebab utama bootloop jika ukuran file 0 bytes)
+        if [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
           echo "Successfully added file: Image"
         else
-          echo "ERROR: Image file not found! Kompilasi kernel gagal."
+          echo "ERROR: Image file is missing or empty!"
           exit 1
         fi
         
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
+        # Otomatis deteksi dan bawa DTBO & DTB jika berhasil dikompilasi (Sangat penting untuk Samsung baru)
+        if [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
           echo "Successfully added file: dtbo.img"
         fi
         
+        if [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/dts/vendor/qcom/dtb.img" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dts/vendor/qcom/dtb.img $GITHUB_WORKSPACE/zip_stage/dtb.img
+          echo "Successfully added file: dtb.img (Qualcomm)"
+        elif [ -s "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtb.img" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtb.img $GITHUB_WORKSPACE/zip_stage/dtb.img
+          echo "Successfully added file: dtb.img"
+        fi
+        
         cd $GITHUB_WORKSPACE/zip_stage
         zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-        echo "Single package zip successfully created."
 
     - name: Set Release Tag
       run: |
         echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
+        echo "COMPILER_NAME=$(cat $GITHUB_WORKSPACE/compiler_info.txt)" >> $GITHUB_ENV
 
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
@@ -156,8 +169,8 @@ jobs:
           ### Kernel Build Details
           - **Repository**: ${{ github.event.inputs.kernel_repo }}
           - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
-          - **Compiler**: ${{ github.event.inputs.clang_version }}
           - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
+          - **Exact Compiler**: `${{ env.COMPILER_NAME }}`
         draft: false
         prerelease: false
       env:
