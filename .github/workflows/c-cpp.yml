@@ -1,3 +1,87 @@
+name: Build Scamsung Kernel
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+    inputs:
+      kernel_repo:
+        description: 'Kernel Repository URL'
+        required: true
+        default: ''
+        type: string
+      kernel_branch:
+        description: 'Git branch'
+        required: false
+        default: ''
+        type: string
+      clang_version:
+        description: 'Select Clang Compiler Version'
+        required: true
+        default: 'clang-10'
+        type: choice
+        options:
+          - 'clang-10'
+          - 'clang-11'
+          - 'proton-clang'
+          - 'azure-clang'
+      defconfig_name:
+        description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
+        required: true
+        default: 'vendor/a23_eur_open_defconfig'
+        type: string
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Checkout WorkSpace
+      uses: actions/checkout@v4
+
+    - name: Download Kernel Source
+      run: |
+        if [ -z "${{ github.event.inputs.kernel_branch }}" ]; then
+          echo "Cloning default branch from ${{ github.event.inputs.kernel_repo }}..."
+          git clone --depth=1 --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
+        else
+          echo "Cloning branch ${{ github.event.inputs.kernel_branch }} from ${{ github.event.inputs.kernel_repo }}..."
+          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
+        fi
+
+    - name: Install Build Dependencies
+      run: |
+        sudo apt update -y
+        sudo apt install zip ccache -y
+        sudo apt install bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
+
+    - name: Download Toolchains
+      run: |
+        mkdir -p $GITHUB_WORKSPACE/toolchains
+        cd $GITHUB_WORKSPACE/toolchains
+        
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
+        echo "Selected Clang version: $CHOSEN_CLANG"
+        
+        if [ "$CHOSEN_CLANG" = "clang-10" ]; then
+          echo "Downloading Clang 10..."
+          git clone --depth=1 -b clang-10 https://github.com clang
+        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
+          echo "Downloading Clang 11..."
+          git clone --depth=1 -b clang-11 https://github.com clang
+        elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
+          echo "Downloading Proton Clang..."
+          git clone --depth=1 https://github.com clang
+        elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
+          echo "Downloading Azure Clang..."
+          git clone --depth=1 https://github.com clang
+        fi
+        
+        echo "Downloading GCC Reference Toolchain..."
+        git clone --depth=1 -b gcc https://github.com gcc
+
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
@@ -52,3 +136,55 @@
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y || \
         (echo "Kompilasi paralel gagal! Mengulang dengan -j1 untuk menangkap error asli..." && \
          make -j1 O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y)
+
+    - name: Package Kernel
+      run: |
+        echo "Preparing AnyKernel structure without duplicate files..."
+        rm -rf $GITHUB_WORKSPACE/zip_stage
+        mkdir -p $GITHUB_WORKSPACE/zip_stage
+        
+        if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
+          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
+        else
+          echo "WARNING: ScamsungKernel folder not found! Creating fallback folder."
+          mkdir -p $GITHUB_WORKSPACE/zip_stage
+        fi
+        
+        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
+          echo "Successfully added file: Image"
+        else
+          echo "ERROR: Image file not found!"
+          exit 1
+        fi
+        
+        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
+          echo "Successfully added file: dtbo.img"
+        fi
+        
+        cd $GITHUB_WORKSPACE/zip_stage
+        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
+        echo "Single package zip successfully created."
+
+    - name: Set Release Tag
+      run: |
+        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
+
+    - name: Upload to GitHub Release
+      uses: softprops/action-gh-release@v2
+      with:
+        files: ScamsungKernel.zip
+        tag_name: "${{ env.RELEASE_TAG }}"
+        name: "Scamsung Kernel Build"
+        body: |
+          ### Kernel Build Details
+          - **Repository**: ${{ github.event.inputs.kernel_repo }}
+          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
+          - **Compiler**: ${{ github.event.inputs.clang_version }}
+          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
