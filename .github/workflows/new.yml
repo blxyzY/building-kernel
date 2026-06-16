@@ -1,4 +1,4 @@
-name: Build Scamsung Kernel
+name: Build Scamsung Kernel fix
 
 on:
   push:
@@ -6,61 +6,59 @@ on:
   workflow_dispatch:
     inputs:
       kernel_repo:
-        description: 'Kernel Repo URL'
+        description: 'Kernel Repository URL'
         required: true
       kernel_branch:
-        description: 'Branch'
+        description: 'Git branch'
         required: false
       clang_version:
-        description: 'Clang'
+        description: 'Pilih Versi Clang Compiler'
         required: true
         default: 'clang-10'
         type: choice
         options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
-        description: 'Defconfig'
+        description: 'Nama Defconfig'
         required: true
         default: 'vendor/a23_eur_open_defconfig'
 
 jobs:
-  build:
+  build-kernel:
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-    - uses: actions/checkout@v4
+    - name: Checkout WorkSpace
+      uses: actions/checkout@v4
 
-    - name: Cache ccache
-      uses: actions/cache@v4
-      with:
-        path: ~/.cache/ccache
-        key: ${{ runner.os }}-ccache-${{ github.event.inputs.clang_version }}-${{ github.sha }}
-        restore-keys: ${{ runner.os }}-ccache-${{ github.event.inputs.clang_version }}-
-
-    - name: Setup Environment & Toolchains
+    - name: Environment Setup
       run: |
-        sudo apt update && sudo apt install rsync bc cpio flex bison aptitude aria2 git python-is-python3 tar perl wget curl lz4 ccache -y
-        sudo aptitude install libssl-dev -y
+        sudo apt update && sudo apt install -y zip ccache bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4
         
-        # Clone Kernel Source (Mendukung manual & otomatis via push)
-        REPO="${{ github.event.inputs.kernel_repo || 'UR_DEFAULT_REPO_HERE' }}"
+        # Ambil input atau gunakan default jika dipicu via push otomatis
+        REPO="${{ github.event.inputs.kernel_repo || 'ISI_URL_REPO_DEFAULT_DISINI' }}"
         BRANCH="${{ github.event.inputs.kernel_branch }}"
-        BRANCH_ARG=${BRANCH:+"-b $BRANCH"}
-        git clone --depth=1 $BRANCH_ARG --recursive $REPO $GITHUB_WORKSPACE/kernel_src
+        
+        # Pengecekan branch yang aman dari bug spasi ganda
+        if [ -z "$BRANCH" ]; then
+          git clone --depth=1 --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
+        else
+          git clone --depth=1 -b "$BRANCH" --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
+        fi
 
         # Download Toolchains secara dinamis
-        mkdir -p toolchains && cd toolchains
-        CLANG_VER="${{ github.event.inputs.clang_version || 'clang-10' }}"
+        mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
-        if [[ "$CLANG_VER" == *"proton"* ]]; then
+        if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
-        elif [[ "$CLANG_VER" == *"azure"* ]]; then
+        elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         else
-          git clone --depth=1 -b $CLANG_VER --single-branch https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com/rsuplaygrnd/toolchains.git clang
         fi
-        git clone --depth=1 -b gcc --single-branch https://github.com/blxyzY/toolchain.git gcc
+        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
     - name: Compile Kernel
       run: |
@@ -68,33 +66,62 @@ jobs:
         export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
-        ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
-        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
+        # 1. Hapus total folder out secara fisik untuk menghindari Integer Overflow LLD
+        rm -rf $OUT_DIR
+        mkdir -p $OUT_DIR
         
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG olddefconfig
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y
+        # 2. Masuk ke folder kernel dan paksa deep clean (Fix MODPOST Stuck)
+        cd $GITHUB_WORKSPACE/kernel_src
+        git clean -fdx
+        make ARCH=arm64 mrproper
+        
+        # 3. Reset total statistik ccache agar tidak membawa objek korup lama
+        ccache -M 5G
+        ccache -c
+        
+        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
+        echo "Menggunakan Defconfig: $DEFCONFIG"
+        
+        # 4. Mulai proses build konfigurasi secara single-thread agar stabil
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+        
+        # 5. Eksekusi Kompilasi Utama
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
-    - name: Package & Release
+    - name: Package Kernel
       run: |
-        mkdir -p zip_stage
-        if [ -d "ScamsungKernel" ]; then
-          cp -r ScamsungKernel/* zip_stage/ && find zip_stage/ -name "*.zip" -delete
+        rm -rf $GITHUB_WORKSPACE/zip_stage && mkdir -p $GITHUB_WORKSPACE/zip_stage
+        
+        if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
+          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git zip_stage && rm -rf zip_stage/.git
+          echo "ERROR: ScamsungKernel folder not found!" && exit 1
         fi
         
-        [ -f "out/arch/arm64/boot/Image" ] && cp out/arch/arm64/boot/Image zip_stage/Image || { echo "Image missing!"; exit 1; }
-        [ -f "out/arch/arm64/boot/dtbo.img" ] && cp out/arch/arm64/boot/dtbo.img zip_stage/dtbo.img
+        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
+        else
+          echo "ERROR: Image file not found!" && exit 1
+        fi
         
-        cd zip_stage && zip -r9 ../ScamsungKernel.zip ./*
+        [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
+        
+        cd $GITHUB_WORKSPACE/zip_stage && zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
         echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
 
-    - name: Upload Release
+    - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: ScamsungKernel.zip
         tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel [${{ env.RELEASE_TAG }}]"
-        body: "Compiled successfully with ${{ github.event.inputs.clang_version || 'clang-10' }}"
+        name: "Scamsung Kernel Build"
+        body: |
+          ### Kernel Build Details
+          - **Repository**: ${{ github.event.inputs.kernel_repo }}
+          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
+          - **Compiler**: ${{ github.event.inputs.clang_version }}
+          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
