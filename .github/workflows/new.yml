@@ -23,9 +23,9 @@ on:
         options:
           - 'clang-10'
           - 'clang-11'
+          - 'clang-12'
           - 'proton-clang'
           - 'azure-clang'
-          - 'clang-12'
       defconfig_name:
         description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
         required: true
@@ -89,12 +89,19 @@ jobs:
       run: |
         cd $GITHUB_WORKSPACE/kernel_src
         
-        # Penentuan Variabel Menggunakan Jalur Absolut GITHUB_WORKSPACE
+        CLANG_BIN_DIR=$(dirname $(find $GITHUB_WORKSPACE/toolchain/clang -type f -name "clang" | head -n 1))
+        GCC64_BIN_DIR=$(dirname $(find $GITHUB_WORKSPACE/toolchain/gcc -type f -name "aarch64-linux-android-ld" | head -n 1))
+        GCC32_BIN_DIR=$(dirname $(find $GITHUB_WORKSPACE/toolchain/gcc -type f -name "arm-linux-androideabi-ld" | head -n 1))
+        
+        echo "Jalur Clang ditemukan: $CLANG_BIN_DIR"
+        echo "Jalur GCC64 ditemukan: $GCC64_BIN_DIR"
+        echo "Jalur GCC32 ditemukan: $GCC32_BIN_DIR"
+        
         KERNEL_DIR=$GITHUB_WORKSPACE/kernel_src
         OUT_DIR=$KERNEL_DIR/out
-        GCC_64=$GITHUB_WORKSPACE/toolchain/gcc/bin/aarch64-linux-android-
-        GCC_32=$GITHUB_WORKSPACE/toolchain/gcc/bin/arm-linux-androideabi-
-        CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang/bin
+        GCC_64=$GCC64_BIN_DIR/aarch64-linux-android-
+        GCC_32=$GCC32_BIN_DIR/arm-linux-androideabi-
+        CLANG_PATH=$CLANG_BIN_DIR
         
         export DTC_EXT=$KERNEL_DIR/tools/dtc
         export CONFIG_BUILD_ARM64_DT_OVERLAY=y
@@ -103,7 +110,6 @@ jobs:
         export SUBARCH=arm64
         export PATH=$CLANG_PATH:$PATH
         
-        # Optimasi CCACHE
         export USE_CCACHE=1
         export CCACHE_DIR=~/.cache/ccache
         ccache -M 5G
@@ -113,7 +119,6 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
         echo "Menggunakan Defconfig: $DEFCONFIG"
         
-        # Mulai Proses Build Bersih
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu-
 
@@ -135,7 +140,7 @@ jobs:
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
           echo "Successfully added file: Image"
         else
-          echo "ERROR: Image file not found!"
+          echo "ERROR: Image file not found! Kompilasi kernel kamu sebenarnya gagal di step sebelumnya."
           exit 1
         fi
         
