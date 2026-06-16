@@ -40,7 +40,8 @@ jobs:
 
     - name: Setup Environment & Toolchains
       run: |
-        sudo apt update && sudo apt install -y zip ccache bc cpio flex bison git python-is-python3 libc6-dev libssl-dev lz4
+        sudo apt update && sudo apt install rsync bc cpio flex bison aptitude aria2 git python-is-python3 tar perl wget curl lz4 ccache -y
+        sudo aptitude install libssl-dev -y
         
         # Clone Kernel Source (Mendukung manual & otomatis via push)
         REPO="${{ github.event.inputs.kernel_repo || 'UR_DEFAULT_REPO_HERE' }}"
