@@ -72,8 +72,8 @@ jobs:
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
           git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
-          echo "Downloading Clang 11..."
+        elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
+          echo "Downloading Clang 12..."
           git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
