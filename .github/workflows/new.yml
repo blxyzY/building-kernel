@@ -61,14 +61,13 @@ jobs:
       run: |
         mkdir -p $GITHUB_WORKSPACE/toolchains
         cd $GITHUB_WORKSPACE/toolchains
-        
+         
         CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
         echo "Selected Clang version: $CHOSEN_CLANG"
-        
+         
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
           git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang_temp
-          # Membuat symlink agar jalurnya pas dengan skrip kamu di bawah
           ln -s clang_temp/host/linux-x86/clang-10 clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
@@ -85,17 +84,24 @@ jobs:
           echo "Downloading Azure Clang..."
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         fi
-        
+         
         echo "Downloading GCC Reference Toolchain..."
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc_temp
-        
-        # Menyelaraskan jalur biner GCC untuk versi AOSP maupun Proton/Azure
+         
+        # KOREKSI DISINI: Memastikan folder bin dari GCC terhubung dengan benar ke $GITHUB_WORKSPACE/toolchains/gcc/bin
         if [[ "$CHOSEN_CLANG" == *"clang-"* ]]; then
-          ln -s gcc_temp/linux-x86/aarch64/aarch64-linux-android-4.9 gcc
+          mkdir -p gcc
+          ln -s $GITHUB_WORKSPACE/toolchains/gcc_temp/linux-x86/aarch64/aarch64-linux-android-4.9/bin $GITHUB_WORKSPACE/toolchains/gcc/bin
         else
-          ln -s gcc_temp gcc
+          # Jika menggunakan Proton / Azure Clang, mereka biasanya butuh GCC standar di folder bin
+          mkdir -p gcc
+          ln -s $GITHUB_WORKSPACE/toolchains/gcc_temp/bin $GITHUB_WORKSPACE/toolchains/gcc/bin
         fi
 
+        # Verifikasi apakah binari GCC memang ada di lokasi tersebut (untuk mempermudah debugging di log)
+        echo "Isi dari folder gcc/bin:"
+        ls -l gcc/bin/ || echo "Folder gcc/bin kosong atau symlink rusak!"
+        
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
