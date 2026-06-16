@@ -67,20 +67,20 @@ jobs:
         
         if [ "$CHOSEN_CLANG" = "clang-10" ]; then
           echo "Downloading Clang 10..."
-          git clone --depth=1 -b clang-10 https://github.com clang
+          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
           echo "Downloading Clang 11..."
-          git clone --depth=1 -b clang-11 https://github.com clang
+          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
         elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           echo "Downloading Proton Clang..."
-          git clone --depth=1 https://github.com clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
           echo "Downloading Azure Clang..."
-          git clone --depth=1 https://github.com clang
+          git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         fi
         
         echo "Downloading GCC Reference Toolchain..."
-        git clone --depth=1 -b gcc https://github.com gcc
+        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
     - name: Compile Kernel
       run: |
@@ -144,11 +144,11 @@ jobs:
         
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
         
-        # Menyiapkan berkas header arsitektur awal
+        # Menyiapkan berkas header arsitektur awal (Mencegah eror asm/vectors.h)
         make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- prepare
         
         # --- PERBAIKAN PENGAMAN KEDUA (Folder OUT) ---
-        # Menyalin kembali berkas kabi yang bersih jika sistem 'make prepare' sempat menduplikasinya kembali
+        # Menyalin kembali berkas kabi yang bersih jika sempat terduplikasi kembali oleh langkah 'prepare'
         if [ -d "$OUT_DIR/include/linux" ]; then
           echo "Applying secondary KABI patch inside out directory..."
           cp -f include/linux/android_kabi.h $OUT_DIR/include/linux/android_kabi.h
