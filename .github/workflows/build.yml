@@ -1,4 +1,4 @@
-name: Build ScamsungKernel Selinux
+name: Build ScamsungKernel fix
 
 on:
   push:
@@ -55,13 +55,13 @@ jobs:
         CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
         if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
+          git clone --depth=1 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
-          git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+          git clone --depth=1 https://github.com clang
         else
-          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com/rsuplaygrnd/toolchains.git clang
+          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com clang
         fi
-        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
+        git clone --depth=1 -b gcc https://github.com gcc
 
     - name: Auto-Patch BPF Mismatch (Fix Line 428 & 433)
       run: |
@@ -69,15 +69,22 @@ jobs:
         SYSCALL_PATH="$GITHUB_WORKSPACE/kernel_src/kernel/bpf/syscall.c"
         
         if [ -f "$SYSCALL_PATH" ]; then
-          echo "Memulai Auto-Patch paksa untuk menangani eror map identifier..."
-          # Mengubah tipe parameter fungsi bpf_map_charge_memlock agar mencocokkan 'map'
-          sed -i 's/struct bpf_map \*bpf_map, u32 pages/struct bpf_map \*map, u32 pages/g' "$SYSCALL_PATH"
+          echo "Memulai Auto-Patch pembersihan massal identifier..."
+          
+          # 1. Hapus trik alias lokal yang menyebabkan redefinition/undeclared bpf_map
+          sed -i '/struct bpf_map \*map = bpf_map;/d' "$SYSCALL_PATH"
+          
+          # 2. Ubah semua pemanggilan bpf_map-> menjadi map-> agar seragam di fungsi lama maupun baru
           sed -i 's/bpf_map->pages/map->pages/g' "$SYSCALL_PATH"
           sed -i 's/bpf_map->user/map->user/g' "$SYSCALL_PATH"
           
-          # Membersihkan jika ada sisa duplikasi makro lama yang mengganggu
+          # 3. Pastikan argumen fungsi lama juga ikut diubah dari bpf_map menjadi map
+          sed -i 's/struct bpf_map \*bpf_map/struct bpf_map \*map/g' "$SYSCALL_PATH"
+          
+          # 4. Bersihkan sisa duplikasi makro lama jika ada
           sed -i '/#define bpf_map_init_memlock(map) (0)/d' "$SYSCALL_PATH"
-          echo "Patch BPF selesai diterapkan secara otomatis."
+          
+          echo "Sapu bersih duplikasi selesai diterapkan."
         fi
 
     - name: Compile Kernel
