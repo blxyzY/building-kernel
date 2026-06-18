@@ -17,6 +17,10 @@ on:
         default: 'clang-10'
         type: choice
         options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
+      defconfig_name:
+        description: 'Nama Defconfig'
+        required: true
+        default: 'vendor/a23_eur_open_defconfig'
       selinux_mode:
         description: 'Pilih Mode SELinux'
         required: true
@@ -59,6 +63,23 @@ jobs:
         fi
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
+    - name: Auto-Patch BPF Mismatch (Fix Line 428 & 433)
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_src
+        SYSCALL_PATH="$GITHUB_WORKSPACE/kernel_src/kernel/bpf/syscall.c"
+        
+        if [ -f "$SYSCALL_PATH" ]; then
+          echo "Memulai Auto-Patch paksa untuk menangani eror map identifier..."
+          # Mengubah tipe parameter fungsi bpf_map_charge_memlock agar mencocokkan 'map'
+          sed -i 's/struct bpf_map \*bpf_map, u32 pages/struct bpf_map \*map, u32 pages/g' "$SYSCALL_PATH"
+          sed -i 's/bpf_map->pages/map->pages/g' "$SYSCALL_PATH"
+          sed -i 's/bpf_map->user/map->user/g' "$SYSCALL_PATH"
+          
+          # Membersihkan jika ada sisa duplikasi makro lama yang mengganggu
+          sed -i '/#define bpf_map_init_memlock(map) (0)/d' "$SYSCALL_PATH"
+          echo "Patch BPF selesai diterapkan secara otomatis."
+        fi
+
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
@@ -66,23 +87,11 @@ jobs:
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
         ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
+        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
+        DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
 
-        # --- PROSES MERGE 3 DEFCONFIG (LANGSUNG DI FOLDER CONFIGS) ---
-        echo "Menggabungkan 3 defconfig menjadi satu..."
-        CONFIG_DIR="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs"
-        
-        # Nama file defconfig baru hasil gabungan
-        DEFCONFIG_FINAL="merged_a23_defconfig"
-        DEFCONFIG_PATH="$CONFIG_DIR/$DEFCONFIG_FINAL"
-
-        # Menggabungkan ketiganya secara langsung tanpa subfolder vendor
-        cat "$CONFIG_DIR/a23_eur_open_defconfig" \
-            "$CONFIG_DIR/a23q-perf_defconfig" \
-            "$CONFIG_DIR/gki_defconfig" > "$DEFCONFIG_PATH"
-        # ------------------------------------------------------------
-
-        # --- LOGIKA INJEKSI SELINUX ---
+        # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
         if [ "$SELINUX_CHOICE" = "permissive" ]; then
           echo "Mengonfigurasi kernel ke SELinux Permissive..."
           sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
@@ -105,13 +114,7 @@ jobs:
         fi
         # -----------------------------------------------
 
-        # Eksekusi defconfig gabungan awal
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG_FINAL
-        
-        # Penyelarasan struktur defconfig (olddefconfig)
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
-
-        # Proses Compile Utama
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
     - name: Package Kernel
@@ -149,14 +152,4 @@ jobs:
       with:
         files: ScamsungKernel.zip
         tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel v${{ env.LINUX_VERSION }} [${{ env.SELINUX_STATUS }}]"
-        body: |
-          ### Kernel Build Details
-          - **Linux Version**: `v${{ env.LINUX_VERSION }}`
-          - **SELinux Mode**: `${{ env.SELINUX_STATUS }}`
-          - **Repository**: ${{ github.event.inputs.kernel_repo }}
-          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
-          - **Compiler**: ${{ github.event.inputs.clang_version }}
-          - **Defconfig**: `3x Merged Defconfig (a23_eur_open, a23q-perf, gki)`
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: "ScamsungKernel-${{ env.LINUX_VERSION }}-${{ env.SELINUX_STATUS }}"
