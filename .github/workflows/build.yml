@@ -1,4 +1,4 @@
-name: Build ScamsungKernel fix
+name: Build ScamsungKernel Selinux
 
 on:
   push:
@@ -54,13 +54,21 @@ jobs:
         mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
         CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
+        echo "Menggunakan Compiler Clang: $CHOSEN_CLANG"
         if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           git clone --depth=1 https://github.com clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
           git clone --depth=1 https://github.com clang
+        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
+          git clone --depth=1 -b clang-11 https://github.com clang
+        elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
+          git clone --depth=1 -b clang-12 https://github.com clang
         else
-          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com clang
+          # Fallback otomatis ke versi stabil clang-10 jika input kosong atau tidak cocok
+          git clone --depth=1 -b clang-10 https://github.com clang
         fi
+        
+        # Amankan kloning compiler pendukung GCC 
         git clone --depth=1 -b gcc https://github.com gcc
 
     - name: Auto-Patch BPF Mismatch (Fix Line 428 & 433)
