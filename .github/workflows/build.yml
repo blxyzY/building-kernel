@@ -1,4 +1,4 @@
-name: Build Scamsung Kernel
+name: Build ScamsungKernel Selinux
 
 on:
   push:
@@ -8,29 +8,21 @@ on:
       kernel_repo:
         description: 'Kernel Repository URL'
         required: true
-        default: ''
-        type: string
       kernel_branch:
         description: 'Git branch'
         required: false
-        default: ''
-        type: string
       clang_version:
-        description: 'Select Clang Compiler Version'
+        description: 'Pilih Versi Clang Compiler'
         required: true
         default: 'clang-10'
         type: choice
-        options:
-          - 'clang-10'
-          - 'clang-11'
-          - 'proton-clang'
-          - 'azure-clang'
-          - 'clang-12'
-      defconfig_name:
-        description: 'Defconfig Name (e.g. vendor/a23_eur_open_defconfig)'
+        options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
+      selinux_mode:
+        description: 'Pilih Mode SELinux'
         required: true
-        default: 'vendor/a23_eur_open_defconfig'
-        type: string
+        default: 'permissive'
+        type: choice
+        options: ['enforcing', 'permissive']
 
 jobs:
   build-kernel:
@@ -42,125 +34,129 @@ jobs:
     - name: Checkout WorkSpace
       uses: actions/checkout@v4
 
-    - name: Download Kernel Source
+    - name: Environment Setup
       run: |
-        if [ -z "${{ github.event.inputs.kernel_branch }}" ]; then
-          echo "Cloning default branch from ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
+        sudo apt update && sudo apt install -y zip ccache bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4
+        
+        REPO="${{ github.event.inputs.kernel_repo || 'ISI_URL_REPO_DEFAULT_DISINI' }}"
+        BRANCH="${{ github.event.inputs.kernel_branch }}"
+        
+        if [ -z "$BRANCH" ]; then
+          git clone --depth=1 --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
         else
-          echo "Cloning branch ${{ github.event.inputs.kernel_branch }} from ${{ github.event.inputs.kernel_repo }}..."
-          git clone --depth=1 -b ${{ github.event.inputs.kernel_branch }} --recursive ${{ github.event.inputs.kernel_repo }} $GITHUB_WORKSPACE/kernel_src
+          git clone --depth=1 -b "$BRANCH" --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
         fi
 
-    - name: Install Build Dependencies
-      run: |
-        sudo apt update -y
-        sudo apt install zip ccache -y
-        sudo apt install bc cpio flex bison git python-is-python3 libc6 libc6-dev tar perl curl lz4 -y
-
-    - name: Download Toolchains
-      run: |
-        mkdir -p $GITHUB_WORKSPACE/toolchains
-        cd $GITHUB_WORKSPACE/toolchains
+        mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
+        CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
-        CHOSEN_CLANG="${{ github.event.inputs.clang_version }}"
-        echo "Selected Clang version: $CHOSEN_CLANG"
-        
-        if [ "$CHOSEN_CLANG" = "clang-10" ]; then
-          echo "Downloading Clang 10..."
-          git clone --depth=1 -b clang-10 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
-          echo "Downloading Clang 11..."
-          git clone --depth=1 -b clang-11 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
-          echo "Downloading Clang 12..."
-          git clone --depth=1 -b clang-12 https://github.com/rsuplaygrnd/toolchains.git clang
-        elif [ "$CHOSEN_CLANG" = "proton-clang" ]; then
-          echo "Downloading Proton Clang..."
+        if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
-          echo "Downloading Azure Clang..."
           git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
+        else
+          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com/rsuplaygrnd/toolchains.git clang
         fi
-        
-        echo "Downloading GCC Reference Toolchain..."
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
+        export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
+        export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
-        export ARCH=arm64
-        export SUBARCH=arm64
-        export OUT_DIR=$GITHUB_WORKSPACE/out
+        ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
+        SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
+
+        # --- PROSES MERGE 3 DEFCONFIG (LANGSUNG DI FOLDER CONFIGS) ---
+        echo "Menggabungkan 3 defconfig menjadi satu..."
+        CONFIG_DIR="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs"
         
-        export GCC_64=aarch64-linux-android-
-        export GCC_32=arm-linux-androideabi-
+        # Nama file defconfig baru hasil gabungan
+        DEFCONFIG_FINAL="merged_a23_defconfig"
+        DEFCONFIG_PATH="$CONFIG_DIR/$DEFCONFIG_FINAL"
+
+        # Menggabungkan ketiganya secara langsung tanpa subfolder vendor
+        cat "$CONFIG_DIR/a23_eur_open_defconfig" \
+            "$CONFIG_DIR/a23q-perf_defconfig" \
+            "$CONFIG_DIR/gki_defconfig" > "$DEFCONFIG_PATH"
+        # ------------------------------------------------------------
+
+        # --- LOGIKA INJEKSI SELINUX ---
+        if [ "$SELINUX_CHOICE" = "permissive" ]; then
+          echo "Mengonfigurasi kernel ke SELinux Permissive..."
+          sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
+          sed -i 's/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/CONFIG_SECURITY_SELINUX_DEVELOP=y/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE is not set/' "$DEFCONFIG_PATH" 2>/dev/null || true
+          if grep -q "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE" "$DEFCONFIG_PATH"; then
+            sed -i 's/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/' "$DEFCONFIG_PATH"
+          else
+            echo "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y" >> "$DEFCONFIG_PATH"
+          fi
+          sed -i 's/CONFIG_INTEGRITY=y/# CONFIG_INTEGRITY is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_DEFEX=y/# CONFIG_SECURITY_DEFEX is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_PROCA=y/# CONFIG_PROCA is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_FIVE=y/# CONFIG_FIVE is not set/' "$DEFCONFIG_PATH"
+        else
+          echo "Mengonfigurasi kernel ke SELinux Enforcing..."
+          sed -i 's/CONFIG_CMDLINE="androidboot.selinux=permissive"/CONFIG_CMDLINE=""/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_SELINUX_DEVELOP=y/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/' "$DEFCONFIG_PATH"
+        fi
+        # -----------------------------------------------
+
+        # Eksekusi defconfig gabungan awal
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG_FINAL
         
-        export USE_CCACHE=1
-        export CCACHE_DIR=~/.cache/ccache
-        ccache -M 5G
-        
-        mkdir -p $OUT_DIR
-        cd $GITHUB_WORKSPACE/kernel_src
-        
-        DEFCONFIG="${{ github.event.inputs.defconfig_name }}"
-        echo "Using Defconfig: $DEFCONFIG"
-        
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
-        
+        # Penyelarasan struktur defconfig (olddefconfig)
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+
+        # Proses Compile Utama
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
     - name: Package Kernel
       run: |
-        echo "Preparing AnyKernel structure without duplicate files..."
-        rm -rf $GITHUB_WORKSPACE/zip_stage
-        mkdir -p $GITHUB_WORKSPACE/zip_stage
+        rm -rf $GITHUB_WORKSPACE/zip_stage && mkdir -p $GITHUB_WORKSPACE/zip_stage
         
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
           find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
-          echo "ERROR: ScamsungKernel folder not found!"
-          exit 1
+          echo "ERROR: ScamsungKernel folder not found!" && exit 1
         fi
         
         if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
           cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-          echo "Successfully added file: Image"
         else
-          echo "ERROR: Image file not found!"
-          exit 1
+          echo "ERROR: Image file not found!" && exit 1
         fi
         
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-          echo "Successfully added file: dtbo.img"
-        fi
+        [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
         
-        cd $GITHUB_WORKSPACE/zip_stage
-        zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-        echo "Single package zip successfully created."
+        cd $GITHUB_WORKSPACE/zip_stage && zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
+        
+        cd $GITHUB_WORKSPACE/kernel_src
+        KERNEL_VERSION=$(make kernelversion)
+        SELINUX_MODE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
+        SELINUX_CAPITAL=$(echo "$SELINUX_MODE" | awk '{print toupper(substr($0,1,1))substr($0,2)}')
 
-    - name: Set Release Tag
-      run: |
-        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')" >> $GITHUB_ENV
+        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')-$SELINUX_MODE" >> $GITHUB_ENV
+        echo "LINUX_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
+        echo "SELINUX_STATUS=$SELINUX_CAPITAL" >> $GITHUB_ENV
 
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
       with:
         files: ScamsungKernel.zip
         tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel Build"
+        name: "Scamsung Kernel v${{ env.LINUX_VERSION }} [${{ env.SELINUX_STATUS }}]"
         body: |
           ### Kernel Build Details
+          - **Linux Version**: `v${{ env.LINUX_VERSION }}`
+          - **SELinux Mode**: `${{ env.SELINUX_STATUS }}`
           - **Repository**: ${{ github.event.inputs.kernel_repo }}
           - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
           - **Compiler**: ${{ github.event.inputs.clang_version }}
-          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
-        draft: false
-        prerelease: false
+          - **Defconfig**: `3x Merged Defconfig (a23_eur_open, a23q-perf, gki)`
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
