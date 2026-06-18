@@ -54,22 +54,14 @@ jobs:
         mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
         CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
-        echo "Menggunakan Compiler Clang: $CHOSEN_CLANG"
         if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
-          git clone --depth=1 https://github.com clang
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
-          git clone --depth=1 https://github.com clang
-        elif [ "$CHOSEN_CLANG" = "clang-11" ]; then
-          git clone --depth=1 -b clang-11 https://github.com clang
-        elif [ "$CHOSEN_CLANG" = "clang-12" ]; then
-          git clone --depth=1 -b clang-12 https://github.com clang
+          git clone --depth=1 https://github.com/Padd3X/Azure-Clang.git clang
         else
-          # Fallback otomatis ke versi stabil clang-10 jika input kosong atau tidak cocok
-          git clone --depth=1 -b clang-10 https://github.com clang
+          git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com/rsuplaygrnd/toolchains.git clang
         fi
-        
-        # Amankan kloning compiler pendukung GCC 
-        git clone --depth=1 -b gcc https://github.com gcc
+        git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
     - name: Auto-Patch BPF Mismatch (Fix Line 428 & 433)
       run: |
