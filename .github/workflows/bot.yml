@@ -1,5 +1,10 @@
 name: Run Kernel Assistant Telegram Bot
 
+# Tambahkan blok concurrency ini:
+concurrency:
+  group: telegram-bot-group
+  cancel-in-progress: true
+
 on:
   push:
     branches:
