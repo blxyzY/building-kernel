@@ -25,7 +25,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     try:
-        # MENGGUNAKAN MODEL LITE YANG LEBIH HEMAT KUOTA
         response = client.models.generate_content(
             model='gemini-2.5-flash-lite',
             contents=user_text,
@@ -35,6 +34,16 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         ai_reply = response.text
         await update.message.reply_text(ai_reply)
+        
+    except Exception as e:
+        logging.error(f"Error AI: {e}")
+        error_msg = str(e).upper()
+        
+        if "429" in error_msg or "RESOURCE_EXHAUSTED" in error_msg:
+            await update.message.reply_text("😴 Maaf, otak AI saya sedang lelah karena terlalu banyak pertanyaan hari ini. Silakan coba lagi besok ya!")
+        else:
+            # Mengubah baris ini agar memunculkan teks error asli yang spesifik ke Telegram
+            await update.message.reply_text(f"⚠️ Terjadi error spesifik pada API Gemini:\n`{str(e)}`")
         
     except Exception as e:
         logging.error(f"Error AI: {e}")
