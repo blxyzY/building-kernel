@@ -1,6 +1,7 @@
 import logging
 import time
 import asyncio
+import os  # Ditambahkan untuk membaca Environment Variables dari GitHub
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 from google import genai
@@ -12,13 +13,18 @@ logging.basicConfig(
     level=logging.INFO
 )
 
-# ==========================================
-# KONFIGURASI AKSES RESMI ANDA
-# ==========================================
+# =========================================================================
+# KONFIGURASI AMAN (Membaca dari GitHub Secrets / Environment Variables)
+# =========================================================================
 TELEGRAM_TOKEN = "8725232788:AAHMYnSx55FDTg3vdeGE-LMP92JBdIOB0Oo"
 GEMINI_API_KEY = "AQ.Ab8RN6ITpk1rnV9dr_hLqhhVrYIgfoh0c3XZ2zu3PxDHM46BHA"
 
 MODEL_NAME = "gemini-2.5-flash"
+
+# Validasi awal untuk memastikan variabel lingkungan sudah terisi
+if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
+    logging.critical("ERROR: TELEGRAM_TOKEN atau GEMINI_API_KEY belum diatur di Environment Variables / GitHub Secrets!")
+    exit(1)
 
 # Inisialisasi klien resmi Google GenAI SDK
 client = genai.Client(api_key=GEMINI_API_KEY)
@@ -46,6 +52,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_input = update.message.text
     else:
         return
+
+    # Ambil 150 baris terakhir jika teks terlalu panjang (mencegah overload token Telegram/AI)
+    lines = user_input.splitlines()
+    if len(lines) > 150:
+        user_input = "\n".join(lines[-150:])
 
     # Instruksi System Prompt Pintar untuk Pakar Kernel
     system_instruction = (
@@ -94,12 +105,14 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 if chunk.text:
                     current_chunk += chunk.text
                     
-                    if len(current_chunk) >= 1000:
+                    # Batasi pengiriman per 1500 karakter agar struktur Markdown tidak berantakan
+                    if len(current_chunk) >= 1500:
                         try:
                             await update.message.reply_text(current_chunk, parse_mode="Markdown")
                         except Exception:
                             await update.message.reply_text(current_chunk)
                         current_chunk = ""
+                        await asyncio.sleep(0.5) # Jeda singkat untuk menghindari batasan spam API Telegram
                         
             if current_chunk:
                 try:
