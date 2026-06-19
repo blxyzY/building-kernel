@@ -4,9 +4,9 @@ on:
   push:
     branches: [ main ]
   schedule:
-    # Memicu bot otomatis setiap 5 jam agar tidak terkena limit timeout 6 jam GitHub
+    # Memicu bot otomatis setiap 5 jam agar tidak terkena limit timeout 6 jam GitHub Actions
     - cron: '0 */5 * * *'
-  workflow_dispatch: {} # Mengizinkan Anda menyalakan bot secara manual dari tombol di GitHub
+  workflow_dispatch: {} # Mengizinkan Anda menyalakan atau merestart bot secara manual dari tombol di GitHub
 
 jobs:
   run-bot:
@@ -26,15 +26,10 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-        - name: Run Bot
-      env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # Mengubah baris ini
-      run: |
-        python bot_ai.py
     - name: Run Bot
       env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # Mengubah baris ini
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}   # Membaca secret Telegram dari GitHub Settings
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}   # Membaca secret Gemini dari GitHub Settings
       run: |
         python bot_ai.py
+        
