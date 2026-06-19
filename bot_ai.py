@@ -3,35 +3,28 @@ import logging
 import sys
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-# Menggunakan package terbaru dari Google
 from google import genai
 from google.genai import types
 
-# 1. Mengambil API Key dari GitHub Secrets
+# Mengambil API Key dari GitHub Secrets
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
-# Validasi token agar tidak crash tanpa kejelasan
-if not TELEGRAM_TOKEN:
-    print("Error: Variabel TELEGRAM_TOKEN kosong atau tidak ditemukan di GitHub Secrets!")
+if not TELEGRAM_TOKEN or not GEMINI_API_KEY:
+    print("Error: Token Telegram atau Gemini API Key tidak ditemukan!")
     sys.exit(1)
 
-if not GEMINI_API_KEY:
-    print("Error: Variabel GEMINI_API_KEY kosong atau tidak ditemukan di GitHub Secrets!")
-    sys.exit(1)
-
-# 2. Inisialisasi Google Gen AI Client terbaru
+# Inisialisasi Google Gen AI Client
 client = genai.Client(api_key=GEMINI_API_KEY)
 
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("Halo! Saya adalah bot AI berbasis Google Gen AI SDK terbaru yang berjalan via GitHub Actions.")
+    await update.message.reply_text("Halo! Saya adalah bot AI berbasis Google Gemini yang berjalan via GitHub Actions.")
 
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_text = update.message.text
     try:
-        # Memanggil model dengan syntax SDK terbaru (gemini-2.5-flash)
         response = client.models.generate_content(
             model='gemini-2.5-flash',
             contents=user_text,
