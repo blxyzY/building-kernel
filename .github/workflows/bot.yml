@@ -26,10 +26,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
 
-    - name: Run Bot
+        - name: Run Bot
       env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}   # Memasukkan secret ke env script
-        OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # Mengubah baris ini
       run: |
         python bot_ai.py
-        
+    - name: Run Bot
+      env:
+        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }} # Mengubah baris ini
+      run: |
+        python bot_ai.py
