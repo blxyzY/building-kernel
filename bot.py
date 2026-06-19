@@ -16,7 +16,7 @@ logging.basicConfig(
 # =========================================================================
 # KONFIGURASI AMAN (Membaca dari GitHub Secrets / Environment Variables)
 # =========================================================================
-TELEGRAM_TOKEN = "8725232788:AAHMYnSx55FDTg3vdeGE-LMP92JBdIOB0Oo"
+TELEGRAM_TOKEN = "8910446402:AAHcPSOJsRb-6HlgrPWPUbsxkEZVn2UcJrw"
 GEMINI_API_KEY = "AQ.Ab8RN6ITpk1rnV9dr_hLqhhVrYIgfoh0c3XZ2zu3PxDHM46BHA"
 
 MODEL_NAME = "gemini-2.5-flash"
