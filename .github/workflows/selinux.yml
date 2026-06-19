@@ -70,80 +70,12 @@ jobs:
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
         ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
-        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
-        DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
-        SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
-
-        # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
-        if [ "$SELINUX_CHOICE" = "permissive" ]; then
-          echo "Mengonfigurasi kernel ke SELinux Permissive..."
-          sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
-          sed -i 's/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/CONFIG_SECURITY_SELINUX_DEVELOP=y/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE is not set/' "$DEFCONFIG_PATH" 2>/dev/null || true
-          if grep -q "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE" "$DEFCONFIG_PATH"; then
-            sed -i 's/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/' "$DEFCONFIG_PATH"
-          else
-            echo "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y" >> "$DEFCONFIG_PATH"
-          fi
-          sed -i 's/CONFIG_INTEGRITY=y/# CONFIG_INTEGRITY is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_DEFEX=y/# CONFIG_SECURITY_DEFEX is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_PROCA=y/# CONFIG_PROCA is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_FIVE=y/# CONFIG_FIVE is not set/' "$DEFCONFIG_PATH"
-        else
-          echo "Mengonfigurasi kernel ke SELinux Enforcing..."
-          sed -i 's/CONFIG_CMDLINE="androidboot.selinux=permissive"/CONFIG_CMDLINE=""/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_SELINUX_DEVELOP=y/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/' "$DEFCONFIG_PATH"
-        fi
-        # -----------------------------------------------
-
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
-
-    - name: Package Kernel
-      run: |
-        rm -rf $GITHUB_WORKSPACE/zip_stage && mkdir -p $GITHUB_WORKSPACE/zip_stage
         
-        if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
-          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
-          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
-        else
-          echo "ERROR: ScamsungKernel folder not found!" && exit 1
-        fi
+        # --- FIX KERNELSU INTEGRATION & COMPATIBILITY ---
+        echo "Menyelaraskan struktur KernelSU..."
+        rm -rf drivers/kernelsu
+        git clone https://github.com/tiann/KernelSU.git drivers/kernelsu
         
-        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
-          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
-        else
-          echo "ERROR: Image file not found!" && exit 1
-        fi
-        
-        [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img" ] && cp $GITHUB_WORKSPACE/out/arch/arm64/boot/dtbo.img $GITHUB_WORKSPACE/zip_stage/dtbo.img
-        
-        cd $GITHUB_WORKSPACE/zip_stage && zip -r9 $GITHUB_WORKSPACE/ScamsungKernel.zip ./*
-        
-        # Ambil versi kernel asli dan status SELinux
-        cd $GITHUB_WORKSPACE/kernel_src
-        KERNEL_VERSION=$(make kernelversion)
-        SELINUX_MODE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
-        SELINUX_CAPITAL=$(echo "$SELINUX_MODE" | awk '{print toupper(substr($0,1,1))substr($0,2)}')
-
-        echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')-$SELINUX_MODE" >> $GITHUB_ENV
-        echo "LINUX_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
-        echo "SELINUX_STATUS=$SELINUX_CAPITAL" >> $GITHUB_ENV
-
-    - name: Upload to GitHub Release
-      uses: softprops/action-gh-release@v2
-      with:
-        files: ScamsungKernel.zip
-        tag_name: "${{ env.RELEASE_TAG }}"
-        name: "Scamsung Kernel v${{ env.LINUX_VERSION }} [${{ env.SELINUX_STATUS }}]"
-        body: |
-          ### Kernel Build Details
-          - **Linux Version**: `v${{ env.LINUX_VERSION }}`
-          - **SELinux Mode**: `${{ env.SELINUX_STATUS }}`
-          - **Repository**: ${{ github.event.inputs.kernel_repo }}
-          - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
-          - **Compiler**: ${{ github.event.inputs.clang_version }}
-          - **Defconfig**: `${{ github.event.inputs.defconfig_name }}`
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        echo "Menambal file_wrapper.c untuk kompatibilitas kernel lama..."
+        mkdir -p drivers/kernelsu/infra/
+        cat << 'EOF' > drivers/kernelsu/
