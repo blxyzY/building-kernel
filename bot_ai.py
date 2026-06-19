@@ -6,8 +6,8 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from openai import OpenAI
 
 # 1. Mengambil API Key dari Environment Variables GitHub
-TELEGRAM_TOKEN = os.getenv("8555937594:AAHOKb21rx1ju6RB_zx6XL03HJulCqPai80")
-OPENAI_API_KEY = os.getenv("sk-abcd1234qrstuvwxabcd1234qrstuvwxabcd1234")
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 if not TELEGRAM_TOKEN or not OPENAI_API_KEY:
     print("Error: Token Telegram atau OpenAI API Key tidak ditemukan!")
