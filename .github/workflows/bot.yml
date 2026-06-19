@@ -5,15 +5,13 @@ on:
     branches:
       - main
   schedule:
-    # Mengaktifkan ulang otomatis setiap 5 jam (sebelum batas 6 jam GitHub Actions tercapai)
     - cron: '0 */5 * * *'
   workflow_dispatch:
-    # Tombol manual run dari tab Actions GitHub
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    timeout-minutes: 350 # Batalkan sedikit sebelum 360 menit (6 jam) agar penutupan rapi
+    timeout-minutes: 350
 
     steps:
     - name: Checkout Repository Code
@@ -23,7 +21,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: '3.11'
-        cache: 'pip' # Mempercepat loading install library di run berikutnya
+        # Baris cache: 'pip' telah dihapus untuk menghindari error lockfile
 
     - name: Install Required Dependencies
       run: |
@@ -35,5 +33,4 @@ jobs:
         TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
         GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       run: |
-        # Menjalankan script bot utama Anda
         python bot.py
