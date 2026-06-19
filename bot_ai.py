@@ -34,7 +34,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(ai_reply)
     except Exception as e:
         logging.error(f"Error AI: {e}")
-        await update.message.reply_text("Maaf, sedang ada gangguan koneksi ke AI.")
+        # Mengubah baris ini agar memunculkan detail error asli dari OpenAI ke Telegram
+        await update.message.reply_text(f"⚠️ Terjadi error pada API OpenAI:\n`{str(e)}`")
+
 
 def main():
     app = Application.builder().token(TELEGRAM_TOKEN).build()
