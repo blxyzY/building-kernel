@@ -1,35 +1,14 @@
-name: Telegram AI Bot Runner
+name: Server Ubuntu 24 Jam (Self-Hosted)
 
 on:
-  push:
-    branches: [ main ]
-  schedule:
-    # Memicu bot otomatis setiap 5 jam agar tidak terkena limit timeout 6 jam GitHub Actions
-    - cron: '0 */5 * * *'
-  workflow_dispatch: {} # Mengizinkan Anda menyalakan atau merestart bot secara manual dari tombol di GitHub
+  workflow_dispatch: # Jalankan manual dari tab Actions
 
 jobs:
-  run-bot:
-    runs-on: ubuntu-latest # Menjalankan bot di server Linux Ubuntu gratis milik GitHub
+  run-server-24h:
+    runs-on: self-hosted # Menggunakan komputer kamu sendiri sebagai servernya
 
     steps:
-    - name: Checkout Repository
-      uses: actions/checkout@v4 # Mengambil kode dari repositori Anda
-
-    - name: Set up Python
-      uses: actions/setup-python@v5
+    - name: Nyalakan Jalur SSH Realtime
+      uses: mxschmitt/action-tmate@v3
       with:
-        python-version: '3.10' # Menginstal Python versi 3.10
-
-    - name: Install Dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
-
-    - name: Run Bot
-      env:
-        TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}   # Membaca secret Telegram dari GitHub Settings
-        GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}   # Membaca secret Gemini dari GitHub Settings
-      run: |
-        python bot_ai.py
-        
+        limit-access-to-actor: false
