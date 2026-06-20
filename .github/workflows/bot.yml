@@ -1,14 +1,24 @@
-name: Server Ubuntu 24 Jam (Self-Hosted)
+name: Server Ubuntu Loop Gratis
 
 on:
-  workflow_dispatch: # Jalankan manual dari tab Actions
+  workflow_dispatch: # Bisa dinyalakan manual
+  watch:
+    types: [started] # Trik otomatisasi via star repositori
 
 jobs:
-  run-server-24h:
-    runs-on: self-hosted # Menggunakan komputer kamu sendiri sebagai servernya
+  run-server-loop:
+    runs-on: ubuntu-latest # Menggunakan server gratis GitHub, bukan komputer kamu
 
     steps:
     - name: Nyalakan Jalur SSH Realtime
       uses: mxschmitt/action-tmate@v3
       with:
         limit-access-to-actor: false
+
+    - name: Otomatis Trigger Server Baru (Looping)
+      if: always() # Tetap berjalan meskipun tmate dimatikan atau timeout 6 jam
+      run: |
+        curl -X POST -H "Authorization: token ${{ secrets.GITHUB_TOKEN }}" \
+        -H "Accept: application/vnd.github.v3+json" \
+        https://api.github.com/repos/${{ github.repository }}/actions/workflows/bot.yml/dispatches \
+        -d '{"ref":"main"}'
