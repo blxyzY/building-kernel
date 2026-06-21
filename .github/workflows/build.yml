@@ -1,4 +1,4 @@
-name: Build ScamsungKernel Selinux
+name: Build ScamsungKernel fix
 
 on:
   push:
@@ -18,9 +18,9 @@ on:
         type: choice
         options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
-        description: 'Nama Defconfig'
+        description: 'Nama Defconfig Ketiga (Variant)'
         required: true
-        default: 'vendor/a23_eur_open_defconfig'
+        default: 'a23_eur_open_defconfig'
       selinux_mode:
         description: 'Pilih Mode SELinux'
         required: true
@@ -54,7 +54,6 @@ jobs:
         mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
         CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
-        # PERBAIKAN: Mengubah $Class menjadi $CHOSEN_CLANG
         if [ "$CHOSEN_CLANG" = "proton-clang" ]; then
           git clone --depth=1 https://github.com/kdrag0n/proton-clang.git clang
         elif [ "$CHOSEN_CLANG" = "azure-clang" ]; then
@@ -70,15 +69,28 @@ jobs:
         export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
-        # Perbaikan KernelSU untuk Kernel Tua (Tanpa mengubah isi repositori)
-        export KCFLAGS="-DKSU_COMPAT_HAS_REMAP_FILE_RANGE=0"
-        
         ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
-        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
-        DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
+        
+        # --- PROSES MERGE 3 DEFCONFIG BERDASARKAN FOTO ---
+        echo "Menggabungkan gki_defconfig, a23q-perf_defconfig, dan defconfig variant..."
+        
+        # 1. Jadikan gki_defconfig sebagai base konfigurasi awal
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- gki_defconfig
+        
+        # 2. Ambil input nama defconfig ketiga dari user, bersihkan jika ada prefix folder
+        INPUT_DEFCONFIG="${{ github.event.inputs.defconfig_name || 'a23_eur_open_defconfig' }}"
+        TARGET_DEFCONFIG=$(basename "$INPUT_DEFCONFIG")
+        
+        CONF_PERF="arch/arm64/configs/a23q-perf_defconfig"
+        CONF_VARIANT="arch/arm64/configs/$TARGET_DEFCONFIG"
+        
+        # 3. Gabungkan file a23q-perf_defconfig & variant ke dalam .config di folder OUT_DIR
+        ARCH=arm64 ./scripts/kconfig/merge_config.sh -O $OUT_DIR $OUT_DIR/.config $CONF_PERF $CONF_VARIANT
+        
+        DEFCONFIG_PATH="$OUT_DIR/.config"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
 
-        # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
+        # --- LOGIKA INJEKSI SELINUX ---
         if [ "$SELINUX_CHOICE" = "permissive" ]; then
           echo "Mengonfigurasi kernel ke SELinux Permissive..."
           sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
@@ -101,7 +113,10 @@ jobs:
         fi
         # -----------------------------------------------
 
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
+        # Harmonisasi config pasca-merge agar tidak ada dependensi Kconfig yang rusak
+        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+
+        # Mulai proses kompilasi final
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
     - name: Package Kernel
@@ -110,6 +125,15 @@ jobs:
         
         if [ -d "$GITHUB_WORKSPACE/ScamsungKernel" ]; then
           cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
+          find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
+        else
+          echo "ERROR: ScamsungKernel folder not found!" && exit 1
+        fi
+        
+        if [ -f "$GITHUB_WORKSPACE/out/arch/arm64/boot/Image" ]; then
+          cp $GITHUB_WORKSPACE/out/arch/arm64/boot/Image $GITHUB_WORKSPACE/zip_stage/Image
+        else
+          echo "ERROR: Image file not found!"          cp -r $GITHUB_WORKSPACE/ScamsungKernel/* $GITHUB_WORKSPACE/zip_stage/
           find $GITHUB_WORKSPACE/zip_stage/ -name "*.zip" -type f -delete
         else
           echo "ERROR: ScamsungKernel folder not found!" && exit 1
