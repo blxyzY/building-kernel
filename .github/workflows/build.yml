@@ -1,4 +1,4 @@
-name: Build ScamsungKernel fix
+name: Build ScamsungKernel Selinux
 
 on:
   push:
@@ -18,9 +18,9 @@ on:
         type: choice
         options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
-        description: 'Nama Defconfig Ketiga (Variant)'
+        description: 'Nama Defconfig'
         required: true
-        default: 'a23_eur_open_defconfig'
+        default: 'vendor/a23_eur_open_defconfig'
       selinux_mode:
         description: 'Pilih Mode SELinux'
         required: true
@@ -63,6 +63,13 @@ jobs:
         fi
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
+    # --- BARIS YANG BARU DITAMBAHKAN ---
+    - name: Integrate KernelSU-Next
+      run: |
+        cd $GITHUB_WORKSPACE/kernel_src
+        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
+    # -----------------------------------
+
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
@@ -70,27 +77,11 @@ jobs:
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
         ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
-        
-        # --- PROSES MERGE 3 DEFCONFIG BERDASARKAN FOTO ---
-        echo "Menggabungkan gki_defconfig, a23q-perf_defconfig, dan defconfig variant..."
-        
-        # 1. Jadikan gki_defconfig sebagai base konfigurasi awal
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- gki_defconfig
-        
-        # 2. Ambil input nama defconfig ketiga dari user, bersihkan jika ada prefix folder
-        INPUT_DEFCONFIG="${{ github.event.inputs.defconfig_name || 'a23_eur_open_defconfig' }}"
-        TARGET_DEFCONFIG=$(basename "$INPUT_DEFCONFIG")
-        
-        CONF_PERF="arch/arm64/configs/a23q-perf_defconfig"
-        CONF_VARIANT="arch/arm64/configs/$TARGET_DEFCONFIG"
-        
-        # 3. Gabungkan file a23q-perf_defconfig & variant ke dalam .config di folder OUT_DIR
-        ARCH=arm64 ./scripts/kconfig/merge_config.sh -O $OUT_DIR $OUT_DIR/.config $CONF_PERF $CONF_VARIANT
-        
-        DEFCONFIG_PATH="$OUT_DIR/.config"
+        DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
+        DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
 
-        # --- LOGIKA INJEKSI SELINUX ---
+        # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
         if [ "$SELINUX_CHOICE" = "permissive" ]; then
           echo "Mengonfigurasi kernel ke SELinux Permissive..."
           sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
@@ -113,10 +104,14 @@ jobs:
         fi
         # -----------------------------------------------
 
-        # Harmonisasi config pasca-merge agar tidak ada dependensi Kconfig yang rusak
-        make O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- olddefconfig
+        # Aktifkan flag KernelSU di defconfig secara otomatis sebelum kompilasi
+        if grep -q "CONFIG_KSU" "$DEFCONFIG_PATH"; then
+          sed -i 's/# CONFIG_KSU is not set/CONFIG_KSU=y/' "$DEFCONFIG_PATH"
+        else
+          echo "CONFIG_KSU=y" >> "$DEFCONFIG_PATH"
+        fi
 
-        # Mulai proses kompilasi final
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
     - name: Package Kernel
@@ -160,6 +155,7 @@ jobs:
           ### Kernel Build Details
           - **Linux Version**: `v${{ env.LINUX_VERSION }}`
           - **SELinux Mode**: `${{ env.SELINUX_STATUS }}`
+          - **Features Included**: `KernelSU-Next (Legacy Mode)`
           - **Repository**: ${{ github.event.inputs.kernel_repo }}
           - **Branch**: ${{ github.event.inputs.kernel_branch || 'default-branch' }}
           - **Compiler**: ${{ github.event.inputs.clang_version }}
