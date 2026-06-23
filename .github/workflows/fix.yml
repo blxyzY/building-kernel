@@ -69,8 +69,8 @@ jobs:
         export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
-        # Menyuntikkan pemaksaan flag ke level environment Kbuild
-        export KCFLAGS="-w -Wno-error -Wno-implicit-function-declaration"
+        # Tambahkan dua baris ini untuk memaksa compiler mengabaikan ketatnya pengecekan kode
+        export KCFLAGS="-w -Wno-error"
         export HOSTCFLAGS="-w"
         
         ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
@@ -78,30 +78,8 @@ jobs:
         DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
 
-        # --- LOGIKA INJEKSI SELINUX ---
-        if [ "$SELINUX_CHOICE" = "permissive" ]; then
-          echo "Mengonfigurasi kernel ke SELinux Permissive..."
-          sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
-          sed -i 's/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/CONFIG_SECURITY_SELINUX_DEVELOP=y/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE is not set/' "$DEFCONFIG_PATH" 2>/dev/null || true
-          if grep -q "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE" "$DEFCONFIG_PATH"; then
-            sed -i 's/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/' "$DEFCONFIG_PATH"
-          else
-            echo "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y" >> "$DEFCONFIG_PATH"
-          fi
-          sed -i 's/CONFIG_INTEGRITY=y/# CONFIG_INTEGRITY is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_DEFEX=y/# CONFIG_SECURITY_DEFEX is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_PROCA=y/# CONFIG_PROCA is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_FIVE=y/# CONFIG_FIVE is not set/' "$DEFCONFIG_PATH"
-        else
-          echo "Mengonfigurasi kernel ke SELinux Enforcing..."
-          sed -i 's/CONFIG_CMDLINE="androidboot.selinux=permissive"/CONFIG_CMDLINE=""/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_SELINUX_DEVELOP=y/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/' "$DEFCONFIG_PATH"
-          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/' "$DEFCONFIG_PATH"
-        fi
-        # -----------------------------------------------
+        # ... (Logika Injeksi SELinux biarkan tetap seperti bawaan Anda) ...
 
-        # Eksekusi dengan menyertakan flag WERROR=0 secara langsung di baris perintah
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- WERROR=0 $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- WERROR=0 CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
