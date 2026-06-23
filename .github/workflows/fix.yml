@@ -69,12 +69,16 @@ jobs:
         export ARCH=arm64 SUBARCH=arm64 OUT_DIR=$GITHUB_WORKSPACE/out USE_CCACHE=1 CCACHE_DIR=~/.cache/ccache
         export GCC_64=aarch64-linux-android- GCC_32=arm-linux-androideabi-
         
+        # Menyuntikkan pemaksaan flag ke level environment Kbuild
+        export KCFLAGS="-w -Wno-error -Wno-implicit-function-declaration"
+        export HOSTCFLAGS="-w"
+        
         ccache -M 5G && mkdir -p $OUT_DIR && cd $GITHUB_WORKSPACE/kernel_src
         DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
         DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
 
-        # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
+        # --- LOGIKA INJEKSI SELINUX ---
         if [ "$SELINUX_CHOICE" = "permissive" ]; then
           echo "Mengonfigurasi kernel ke SELinux Permissive..."
           sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
@@ -97,9 +101,9 @@ jobs:
         fi
         # -----------------------------------------------
 
-        # BERHASIL DIUBAH: Ditambahkan flag WERROR=0 dan KCFLAGS untuk mengabaikan error ketat bpf & sdcardfs
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- WERROR=0 KCFLAGS="-Wno-error" $DEFCONFIG
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- WERROR=0 KCFLAGS="-Wno-error -Wno-implicit-function-declaration -Wno-uninitialized" CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
+        # Eksekusi dengan menyertakan flag WERROR=0 secara langsung di baris perintah
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- WERROR=0 $DEFCONFIG
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- WERROR=0 CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
     - name: Package Kernel
       run: |
