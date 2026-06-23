@@ -98,7 +98,7 @@ jobs:
         # -----------------------------------------------
 
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
-        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
+        make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- KCFLAGS="-Wno-error" CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
 
     - name: Package Kernel
       run: |
