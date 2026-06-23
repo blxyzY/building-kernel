@@ -21,13 +21,6 @@ on:
         description: 'Nama Defconfig'
         required: true
         default: 'vendor/a23_eur_open_defconfig'
-      selinux_mode:
-        description: 'Pilih Mode SELinux'
-        required: true
-        default: 'enforcing'
-        type: choice
-        options: ['enforcing', 'permissive']
-
 jobs:
   build-kernel:
     runs-on: ubuntu-latest
