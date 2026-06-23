@@ -24,7 +24,7 @@ on:
       selinux_mode:
         description: 'Pilih Mode SELinux'
         required: true
-        default: 'permissive'
+        default: 'enforcing'
         type: choice
         options: ['enforcing', 'permissive']
 
