@@ -71,7 +71,7 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
         DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
-        # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
+        
         if [ "$SELINUX_CHOICE" = "permissive" ]; then
           echo "Mengonfigurasi kernel ke SELinux Permissive..."
           sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
@@ -92,7 +92,7 @@ jobs:
           sed -i 's/CONFIG_SECURITY_SELINUX_DEVELOP=y/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/' "$DEFCONFIG_PATH"
           sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/' "$DEFCONFIG_PATH"
         fi
-        # -----------------------------------------------
+        
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
     - name: Package Kernel
