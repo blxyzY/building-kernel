@@ -24,7 +24,7 @@ on:
       selinux_mode:
         description: 'Pilih Mode SELinux'
         required: true
-        default: 'enforcing'
+        default: 'permissive'
         type: choice
         options: ['enforcing', 'permissive']
 
@@ -50,7 +50,6 @@ jobs:
         else
           git clone --depth=1 -b "$BRANCH" --recursive "$REPO" $GITHUB_WORKSPACE/kernel_src
         fi
-
         mkdir -p $GITHUB_WORKSPACE/toolchains && cd $GITHUB_WORKSPACE/toolchains
         CHOSEN_CLANG="${{ github.event.inputs.clang_version || 'clang-10' }}"
         
@@ -62,7 +61,6 @@ jobs:
           git clone --depth=1 -b "$CHOSEN_CLANG" https://github.com/rsuplaygrnd/toolchains.git clang
         fi
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
-
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
@@ -73,25 +71,28 @@ jobs:
         DEFCONFIG="${{ github.event.inputs.defconfig_name || 'vendor/a23_eur_open_defconfig' }}"
         DEFCONFIG_PATH="$GITHUB_WORKSPACE/kernel_src/arch/arm64/configs/$DEFCONFIG"
         SELINUX_CHOICE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
-
         # --- LOGIKA INJEKSI SELINUX BERDASARKAN FOTO ---
-        # ... (biarkan kode selinux bawaanmu tetap di sini) ...
+        if [ "$SELINUX_CHOICE" = "permissive" ]; then
+          echo "Mengonfigurasi kernel ke SELinux Permissive..."
+          sed -i 's/CONFIG_CMDLINE=""/CONFIG_CMDLINE="androidboot.selinux=permissive"/' "$DEFCONFIG_PATH"
+          sed -i 's/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/CONFIG_SECURITY_SELINUX_DEVELOP=y/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_ENFORCE is not set/' "$DEFCONFIG_PATH" 2>/dev/null || true
+          if grep -q "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE" "$DEFCONFIG_PATH"; then
+            sed -i 's/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/' "$DEFCONFIG_PATH"
+          else
+            echo "CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y" >> "$DEFCONFIG_PATH"
+          fi
+          sed -i 's/CONFIG_INTEGRITY=y/# CONFIG_INTEGRITY is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_DEFEX=y/# CONFIG_SECURITY_DEFEX is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_PROCA=y/# CONFIG_PROCA is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_FIVE=y/# CONFIG_FIVE is not set/' "$DEFCONFIG_PATH"
+        else
+          echo "Mengonfigurasi kernel ke SELinux Enforcing..."
+          sed -i 's/CONFIG_CMDLINE="androidboot.selinux=permissive"/CONFIG_CMDLINE=""/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_SELINUX_DEVELOP=y/# CONFIG_SECURITY_SELINUX_DEVELOP is not set/' "$DEFCONFIG_PATH"
+          sed -i 's/CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE=y/# CONFIG_SECURITY_SELINUX_ALWAYS_PERMISSIVE is not set/' "$DEFCONFIG_PATH"
+        fi
         # -----------------------------------------------
-
-        # === FIX OTOMATIS KERNELSU FILE_WRAPPER ===
-        echo "Memperbaiki eror file_wrapper.c KernelSU..."
-        cd $GITHUB_WORKSPACE/kernel_src/drivers/kernelsu/infra
-        
-        # Kosongkan fungsi ksu_wrapper_remap_file_range yang bikin eror
-        sed -i '/int ksu_wrapper_remap_file_range/,/^}/c\int ksu_wrapper_remap_file_range(struct file *file_in, loff_t pos_in, struct file *file_out, loff_t pos_out, loff_t len, unsigned int remap_flags) { return -EOPNOTSUPP; }' file_wrapper.c
-        
-        # Hapus baris penugasan remap_file_range di bagian bawah file
-        sed -i 's/.*remap_file_range = fp->f_op->remap_file_range.*/    p->ops.remap_file_range = NULL;/' file_wrapper.c
-        
-        # Kembali ke folder kernel_src untuk mulai build
-        cd $GITHUB_WORKSPACE/kernel_src
-
-        # --- PROSES MAKE SEPERTI BIASA ---
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- $DEFCONFIG
         make -j$(nproc --all) O=$OUT_DIR ARCH=arm64 CROSS_COMPILE=$GCC_64 CROSS_COMPILE_ARM32=$GCC_32 CC=clang CLANG_TRIPLE=aarch64-linux-gnu- CONFIG_SECTION_MISMATCH_WARN_ONLY=y CONFIG_DEBUG_SECTION_MISMATCH=y
     - name: Package Kernel
@@ -120,11 +121,9 @@ jobs:
         KERNEL_VERSION=$(make kernelversion)
         SELINUX_MODE="${{ github.event.inputs.selinux_mode || 'permissive' }}"
         SELINUX_CAPITAL=$(echo "$SELINUX_MODE" | awk '{print toupper(substr($0,1,1))substr($0,2)}')
-
         echo "RELEASE_TAG=$(date +'%Y%m%d-%H%M')-$SELINUX_MODE" >> $GITHUB_ENV
         echo "LINUX_VERSION=$KERNEL_VERSION" >> $GITHUB_ENV
         echo "SELINUX_STATUS=$SELINUX_CAPITAL" >> $GITHUB_ENV
-
     - name: Upload to GitHub Release
       uses: softprops/action-gh-release@v2
       with:
