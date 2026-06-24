@@ -1,4 +1,4 @@
-name: Build ScamsungKernel
+name: Build ScamsungKernel NonSelinux
 
 on:
   push:
