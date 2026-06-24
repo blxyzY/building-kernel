@@ -20,7 +20,7 @@ on:
       defconfig_name:
         description: 'Nama Defconfig'
         required: true
-        default: 'vendor/a23_eur_open_defconfig'
+        default: 'a23_eur_open_defconfig'
 
 jobs:
   build-kernel:
