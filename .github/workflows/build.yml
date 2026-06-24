@@ -14,7 +14,7 @@ on:
       clang_version:
         description: 'Pilih Versi Clang Compiler'
         required: true
-        default: 'clang-10'
+        default: 'clang-11'
         type: choice
         options: ['clang-10', 'clang-11', 'clang-12', 'proton-clang', 'azure-clang']
       defconfig_name:
@@ -24,7 +24,7 @@ on:
       selinux_mode:
         description: 'Pilih Mode SELinux'
         required: true
-        default: 'permissive'
+        default: 'enforcing'
         type: choice
         options: ['enforcing', 'permissive']
 
