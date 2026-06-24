@@ -63,13 +63,6 @@ jobs:
         fi
         git clone --depth=1 -b gcc https://github.com/blxyzY/toolchain.git gcc
 
-    # --- BARIS YANG BARU DITAMBAHKAN ---
-    - name: Integrate KernelSU-Next
-      run: |
-        cd $GITHUB_WORKSPACE/kernel_src
-        curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s legacy
-    # -----------------------------------
-
     - name: Compile Kernel
       run: |
         export PATH="$GITHUB_WORKSPACE/toolchains/clang/bin:$GITHUB_WORKSPACE/toolchains/gcc/bin:$PATH"
